@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react';
 import { supabase, Lead, LeadField } from '../lib/supabase';
-import { getSelectOptions, isSelectField } from '../lib/leadFieldConfig';
+import { isSelectField } from '../lib/leadFieldConfig';
 import { Plus, Trash2 } from 'lucide-react';
 
-export function MasterLeads() {
+type MasterLeadsProps = {
+  outreachOptions: string[];
+};
+
+export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [fields, setFields] = useState<LeadField[]>([]);
   const [loading, setLoading] = useState(true);
@@ -155,6 +159,8 @@ export function MasterLeads() {
                   <tr key={lead.id} className="hover:bg-gray-50">
                     {fields.map((field) => {
                       const isSelect = isSelectField(field.field_key, field.type);
+                      const selectOptions =
+                        field.field_key === 'outreach_method' ? outreachOptions : [];
                       return (
                         <td
                           key={field.id}
@@ -173,7 +179,7 @@ export function MasterLeads() {
                                 className="w-full px-2 py-1 border border-blue-500 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                               >
                                 <option value="">-</option>
-                                {getSelectOptions(field.field_key).map(option => (
+                                {selectOptions.map(option => (
                                   <option key={option} value={option}>
                                     {option}
                                   </option>

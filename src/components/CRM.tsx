@@ -1,30 +1,75 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { LogOut } from 'lucide-react';
 import { MasterLeads } from './MasterLeads';
 import { OutreachView } from './OutreachView';
 import { TempLeads } from './TempLeads';
 import { AddFieldModal } from './AddFieldModal';
+import { AddCategoryModal } from './AddCategoryModal';
+import { supabase } from '../lib/supabase';
 
-type Tab = 'master' | 'email' | 'sms' | 'instagram' | 'linkedin' | 'phone' | 'temp';
+type Tab = 'master' | 'temp' | string;
+
+type OutreachMethod = {
+  key: string;
+  label: string;
+};
 
 export function CRM() {
   const { signOut } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('master');
   const [showAddField, setShowAddField] = useState(false);
+  const [showAddCategory, setShowAddCategory] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [methods, setMethods] = useState<OutreachMethod[]>([
+    { key: 'email', label: 'Email' },
+    { key: 'sms', label: 'SMS' },
+    { key: 'instagram', label: 'Instagram' },
+    { key: 'linkedin', label: 'LinkedIn' },
+    { key: 'phone', label: 'Phone' },
+  ]);
 
   const handleRefresh = () => {
     setRefreshKey(prev => prev + 1);
   };
 
+  useEffect(() => {
+    const loadMethods = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('outreach_methods')
+          .select('key,label')
+          .order('created_at', { ascending: true });
+
+        if (error) throw error;
+        if (data && data.length > 0) {
+          setMethods(data);
+        }
+      } catch (error) {
+        console.error('Error loading outreach methods:', error);
+      }
+    };
+
+    loadMethods();
+    const channel = supabase
+      .channel('outreach-methods-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'outreach_methods' },
+        () => {
+          loadMethods();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
   const tabs: { id: Tab; label: string }[] = [
     { id: 'master', label: 'Master Leads' },
-    { id: 'email', label: 'Email' },
-    { id: 'sms', label: 'SMS' },
-    { id: 'instagram', label: 'Instagram' },
-    { id: 'linkedin', label: 'LinkedIn' },
-    { id: 'phone', label: 'Phone' },
+    ...methods.map((method) => ({ id: method.key, label: method.label })),
     { id: 'temp', label: 'Temp Import' },
   ];
 
@@ -39,6 +84,12 @@ export function CRM() {
                 <span className="inline-block w-2 h-2 rounded-full bg-green-500" />
                 Realtime On
               </div>
+              <button
+                onClick={() => setShowAddCategory(true)}
+                className="px-4 py-2 bg-gray-900 text-white rounded-md hover:bg-black text-sm font-medium"
+              >
+                Add Category
+              </button>
               <button
                 onClick={() => setShowAddField(true)}
                 className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium"
@@ -78,12 +129,18 @@ export function CRM() {
       </div>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {activeTab === 'master' && <MasterLeads key={refreshKey} />}
-        {activeTab === 'email' && <OutreachView method="email" key={refreshKey} onUpdate={handleRefresh} />}
-        {activeTab === 'sms' && <OutreachView method="sms" key={refreshKey} onUpdate={handleRefresh} />}
-        {activeTab === 'instagram' && <OutreachView method="instagram" key={refreshKey} onUpdate={handleRefresh} />}
-        {activeTab === 'linkedin' && <OutreachView method="linkedin" key={refreshKey} onUpdate={handleRefresh} />}
-        {activeTab === 'phone' && <OutreachView method="phone" key={refreshKey} onUpdate={handleRefresh} />}
+        {activeTab === 'master' && (
+          <MasterLeads key={refreshKey} outreachOptions={methods.map((m) => m.key)} />
+        )}
+        {activeTab !== 'master' && activeTab !== 'temp' && (
+          <OutreachView
+            method={activeTab}
+            label={methods.find((m) => m.key === activeTab)?.label || activeTab}
+            outreachOptions={methods.map((m) => m.key)}
+            key={refreshKey}
+            onUpdate={handleRefresh}
+          />
+        )}
         {activeTab === 'temp' && <TempLeads onImport={handleRefresh} />}
       </main>
 
@@ -93,6 +150,15 @@ export function CRM() {
           onSuccess={() => {
             setShowAddField(false);
             handleRefresh();
+          }}
+        />
+      )}
+
+      {showAddCategory && (
+        <AddCategoryModal
+          onClose={() => setShowAddCategory(false)}
+          onSuccess={() => {
+            setShowAddCategory(false);
           }}
         />
       )}

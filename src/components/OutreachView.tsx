@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
 import { supabase, Lead, LeadField } from '../lib/supabase';
 import { Plus, Trash2 } from 'lucide-react';
-import { getSelectOptions, isSelectField } from '../lib/leadFieldConfig';
+import { isSelectField } from '../lib/leadFieldConfig';
 
 type OutreachViewProps = {
   method: string;
+  label: string;
+  outreachOptions: string[];
   onUpdate: () => void;
 };
 
-export function OutreachView({ method, onUpdate }: OutreachViewProps) {
+export function OutreachView({ method, label, outreachOptions, onUpdate }: OutreachViewProps) {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [fields, setFields] = useState<LeadField[]>([]);
   const [loading, setLoading] = useState(true);
@@ -129,7 +131,7 @@ export function OutreachView({ method, onUpdate }: OutreachViewProps) {
   return (
     <div>
       <div className="mb-4 flex justify-between items-center">
-        <h2 className="text-lg font-semibold text-gray-900 capitalize">{method} Outreach</h2>
+        <h2 className="text-lg font-semibold text-gray-900">{label} Outreach</h2>
         <button
           onClick={handleAddLead}
           className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm font-medium"
@@ -169,6 +171,8 @@ export function OutreachView({ method, onUpdate }: OutreachViewProps) {
                   <tr key={lead.id} className="hover:bg-gray-50">
                     {fields.map((field) => {
                       const isSelect = isSelectField(field.field_key, field.type);
+                      const selectOptions =
+                        field.field_key === 'outreach_method' ? outreachOptions : [];
                       return (
                         <td
                           key={field.id}
@@ -187,7 +191,7 @@ export function OutreachView({ method, onUpdate }: OutreachViewProps) {
                                 className="w-full px-2 py-1 border border-blue-500 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                               >
                                 <option value="">-</option>
-                                {getSelectOptions(field.field_key).map(option => (
+                                {selectOptions.map(option => (
                                   <option key={option} value={option}>
                                     {option}
                                   </option>

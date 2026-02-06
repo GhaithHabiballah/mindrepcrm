@@ -27,6 +27,20 @@ INSERT INTO lead_fields (field_key, label, type) VALUES
   ('outreach_method', 'Outreach Method', 'select')
 ON CONFLICT (field_key) DO NOTHING;
 
+CREATE TABLE IF NOT EXISTS outreach_methods (
+  key text PRIMARY KEY,
+  label text NOT NULL,
+  created_at timestamptz DEFAULT now()
+);
+
+INSERT INTO outreach_methods (key, label) VALUES
+  ('email', 'Email'),
+  ('sms', 'SMS'),
+  ('instagram', 'Instagram'),
+  ('linkedin', 'LinkedIn'),
+  ('phone', 'Phone')
+ON CONFLICT (key) DO NOTHING;
+
 DROP FUNCTION IF EXISTS update_updated_at_column();
 CREATE FUNCTION update_updated_at_column()
 RETURNS TRIGGER
@@ -74,3 +88,4 @@ GRANT EXECUTE ON FUNCTION add_lead_column(text, text) TO anon;
 
 ALTER TABLE leads DISABLE ROW LEVEL SECURITY;
 ALTER TABLE lead_fields DISABLE ROW LEVEL SECURITY;
+ALTER TABLE outreach_methods DISABLE ROW LEVEL SECURITY;

@@ -17,9 +17,26 @@ INSERT INTO lead_fields (field_key, label, type)
 VALUES ('outreach_method', 'Outreach Method', 'select')
 ON CONFLICT (field_key) DO NOTHING;
 
+-- Create outreach_methods table for dynamic tabs
+CREATE TABLE IF NOT EXISTS outreach_methods (
+  key text PRIMARY KEY,
+  label text NOT NULL,
+  created_at timestamptz DEFAULT now()
+);
+
+-- Seed default outreach methods
+INSERT INTO outreach_methods (key, label) VALUES
+  ('email', 'Email'),
+  ('sms', 'SMS'),
+  ('instagram', 'Instagram'),
+  ('linkedin', 'LinkedIn'),
+  ('phone', 'Phone')
+ON CONFLICT (key) DO NOTHING;
+
 -- Allow anon access for this client-only app
 ALTER TABLE leads DISABLE ROW LEVEL SECURITY;
 ALTER TABLE lead_fields DISABLE ROW LEVEL SECURITY;
+ALTER TABLE outreach_methods DISABLE ROW LEVEL SECURITY;
 
 -- Allow anon to call add_lead_column
 GRANT EXECUTE ON FUNCTION add_lead_column(text, text) TO anon;
