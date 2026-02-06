@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { LogOut } from 'lucide-react';
 import { MasterLeads } from './MasterLeads';
@@ -33,23 +33,23 @@ export function CRM() {
     setRefreshKey(prev => prev + 1);
   };
 
-  useEffect(() => {
-    const loadMethods = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('outreach_methods')
-          .select('key,label')
-          .order('created_at', { ascending: true });
+  const loadMethods = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('outreach_methods')
+        .select('key,label')
+        .order('created_at', { ascending: true });
 
-        if (error) throw error;
-        if (data && data.length > 0) {
-          setMethods(data);
-        }
-      } catch (error) {
-        console.error('Error loading outreach methods:', error);
+      if (error) throw error;
+      if (data && data.length > 0) {
+        setMethods(data);
       }
-    };
+    } catch (error) {
+      console.error('Error loading outreach methods:', error);
+    }
+  }, []);
 
+  useEffect(() => {
     loadMethods();
     const channel = supabase
       .channel('outreach-methods-changes')
@@ -65,7 +65,7 @@ export function CRM() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [loadMethods]);
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'master', label: 'Master Leads' },
@@ -159,6 +159,7 @@ export function CRM() {
           onClose={() => setShowAddCategory(false)}
           onSuccess={() => {
             setShowAddCategory(false);
+            loadMethods();
           }}
         />
       )}
