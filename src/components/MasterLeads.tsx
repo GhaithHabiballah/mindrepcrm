@@ -32,7 +32,7 @@ export function MasterLeads() {
     setLoading(true);
     try {
       const [leadsResult, fieldsResult] = await Promise.all([
-        supabase.from('leads').select('*').order('created_at', { ascending: false }),
+        supabase.from('leads').select('*').order('created_at', { ascending: true }),
         supabase.from('lead_fields').select('*').order('created_at', { ascending: true }),
       ]);
 

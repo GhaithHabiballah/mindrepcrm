@@ -41,7 +41,7 @@ export function OutreachView({ method, onUpdate }: OutreachViewProps) {
           .from('leads')
           .select('*')
           .eq('outreach_method', method)
-          .order('created_at', { ascending: false }),
+          .order('created_at', { ascending: true }),
         supabase.from('lead_fields').select('*').order('created_at', { ascending: true }),
       ]);
 
