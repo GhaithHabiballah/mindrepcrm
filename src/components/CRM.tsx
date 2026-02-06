@@ -32,9 +32,13 @@ export function CRM() {
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <h1 className="text-xl font-bold text-gray-900">Outbound CRM</h1>
+            <div className="flex justify-between items-center h-16">
+              <h1 className="text-xl font-bold text-gray-900">Outbound CRM</h1>
             <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-green-50 text-green-700 text-xs font-medium border border-green-200">
+                <span className="inline-block w-2 h-2 rounded-full bg-green-500" />
+                Realtime On
+              </div>
               <button
                 onClick={() => setShowAddField(true)}
                 className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium"
