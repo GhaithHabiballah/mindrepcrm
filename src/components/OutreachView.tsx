@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { supabase, Lead, LeadField } from '../lib/supabase';
 import { Plus, Trash2 } from 'lucide-react';
+import { AddLeadModal } from './AddLeadModal';
 import { isSelectField } from '../lib/leadFieldConfig';
 
 type OutreachViewProps = {
   method: string;
   label: string;
-  outreachOptions: string[];
+  outreachOptions: { key: string; label: string }[];
   onUpdate: () => void;
 };
 
@@ -16,6 +17,7 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
   const [loading, setLoading] = useState(true);
   const [editingCell, setEditingCell] = useState<{ leadId: string; fieldKey: string } | null>(null);
   const [editValue, setEditValue] = useState('');
+  const [showAddLead, setShowAddLead] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -93,22 +95,8 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
     }
   };
 
-  const handleAddLead = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('leads')
-        .insert([{ name: 'New Lead', outreach_method: method }])
-        .select()
-        .single();
-
-      if (error) throw error;
-      if (data) {
-        setLeads([data, ...leads]);
-        onUpdate();
-      }
-    } catch (error) {
-      console.error('Error adding lead:', error);
-    }
+  const handleAddLead = () => {
+    setShowAddLead(true);
   };
 
   const handleDeleteLead = async (leadId: string) => {
@@ -172,7 +160,9 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
                     {fields.map((field) => {
                       const isSelect = isSelectField(field.field_key, field.type);
                       const selectOptions =
-                        field.field_key === 'outreach_method' ? outreachOptions : [];
+                        field.field_key === 'outreach_method'
+                          ? outreachOptions.map((option) => option.key)
+                          : [];
                       return (
                         <td
                           key={field.id}
@@ -232,6 +222,20 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
           </table>
         </div>
       </div>
+
+      {showAddLead && (
+        <AddLeadModal
+          fields={fields}
+          outreachOptions={outreachOptions}
+          defaultOutreachMethod={method}
+          onClose={() => setShowAddLead(false)}
+          onSuccess={() => {
+            setShowAddLead(false);
+            loadData();
+            onUpdate();
+          }}
+        />
+      )}
     </div>
   );
 }

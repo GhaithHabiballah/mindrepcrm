@@ -130,13 +130,13 @@ export function CRM() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {activeTab === 'master' && (
-          <MasterLeads key={refreshKey} outreachOptions={methods.map((m) => m.key)} />
+          <MasterLeads key={refreshKey} outreachOptions={methods} />
         )}
         {activeTab !== 'master' && activeTab !== 'temp' && (
           <OutreachView
             method={activeTab}
             label={methods.find((m) => m.key === activeTab)?.label || activeTab}
-            outreachOptions={methods.map((m) => m.key)}
+            outreachOptions={methods}
             key={refreshKey}
             onUpdate={handleRefresh}
           />

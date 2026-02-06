@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react';
 import { supabase, Lead, LeadField } from '../lib/supabase';
 import { isSelectField } from '../lib/leadFieldConfig';
 import { Plus, Trash2 } from 'lucide-react';
+import { AddLeadModal } from './AddLeadModal';
 
 type MasterLeadsProps = {
-  outreachOptions: string[];
+  outreachOptions: { key: string; label: string }[];
 };
 
 export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
@@ -13,6 +14,7 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
   const [loading, setLoading] = useState(true);
   const [editingCell, setEditingCell] = useState<{ leadId: string; fieldKey: string } | null>(null);
   const [editValue, setEditValue] = useState('');
+  const [showAddLead, setShowAddLead] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -82,22 +84,8 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
     }
   };
 
-  const handleAddLead = async () => {
-    try {
-      const newLead = { name: 'New Lead', outreach_method: 'email' };
-      const { data, error } = await supabase
-        .from('leads')
-        .insert([newLead])
-        .select()
-        .single();
-
-      if (error) throw error;
-      if (data) {
-        setLeads([data, ...leads]);
-      }
-    } catch (error) {
-      console.error('Error adding lead:', error);
-    }
+  const handleAddLead = () => {
+    setShowAddLead(true);
   };
 
   const handleDeleteLead = async (leadId: string) => {
@@ -160,7 +148,9 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
                     {fields.map((field) => {
                       const isSelect = isSelectField(field.field_key, field.type);
                       const selectOptions =
-                        field.field_key === 'outreach_method' ? outreachOptions : [];
+                        field.field_key === 'outreach_method'
+                          ? outreachOptions.map((option) => option.key)
+                          : [];
                       return (
                         <td
                           key={field.id}
@@ -220,6 +210,18 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
           </table>
         </div>
       </div>
+
+      {showAddLead && (
+        <AddLeadModal
+          fields={fields}
+          outreachOptions={outreachOptions}
+          onClose={() => setShowAddLead(false)}
+          onSuccess={() => {
+            setShowAddLead(false);
+            loadData();
+          }}
+        />
+      )}
     </div>
   );
 }
