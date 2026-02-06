@@ -80,11 +80,26 @@ export function AddLeadModal({
         payload.name = 'New Lead';
       }
 
-      const { error: insertError } = await supabase
-        .from('leads')
-        .insert([payload]);
+      const insertLead = async () => {
+        const { error: insertError } = await supabase
+          .from('leads')
+          .insert([payload]);
+        if (insertError) throw insertError;
+      };
 
-      if (insertError) throw insertError;
+      try {
+        await insertLead();
+      } catch (insertErr) {
+        const message = insertErr && typeof insertErr === 'object' && 'message' in insertErr
+          ? String((insertErr as { message?: string }).message || '')
+          : '';
+        if (message.includes('schema cache')) {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+          await insertLead();
+        } else {
+          throw insertErr;
+        }
+      }
 
       onSuccess();
     } catch (err) {
