@@ -10,8 +10,10 @@ const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
 const PHONE_RE =
   /(?:(?:\+?1[\s.-]?)?(?:\(?[2-9]\d{2}\)?[\s.-]?)[2-9]\d{2}[\s.-]?\d{4})|(?:\+\d{1,3}[\s.-]?\(?\d{1,4}\)?[\s.-]?\d{2,4}[\s.-]?\d{2,4}(?:[\s.-]?\d{1,4})?)/g;
 
-const URL_RE =
-  /(?:https?:\/\/)?(?:www\.)?([a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}(?:\/[^\s,)"'<>]*)?/gi;
+const URL_RE = new RegExp(
+  '(?:https?://)?(?:www\\.)?([a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\\.)+[a-zA-Z]{2,}(?:/[^\\s,)"\\\'<>]*)?',
+  'gi'
+);
 
 const NAME_LABEL_RE = /(?:name|contact)\s*[:]\s*(.+)/i;
 
@@ -22,7 +24,7 @@ function stripDigits(s: string) {
 function looksLikeName(line: string): boolean {
   const trimmed = line.trim();
   if (trimmed.length < 2 || trimmed.length > 60) return false;
-  if (/[@.\/:]/.test(trimmed)) return false;
+  if (/[@./:]/.test(trimmed)) return false;
   if (/^\d/.test(trimmed)) return false;
   const words = trimmed.split(/\s+/);
   if (words.length < 1 || words.length > 4) return false;

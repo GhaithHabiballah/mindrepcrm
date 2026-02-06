@@ -62,7 +62,8 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
   const handleCellClick = (lead: Lead, fieldKey: string) => {
     setEditingCell({ leadId: lead.id, fieldKey });
     setSelectedCell({ leadId: lead.id, fieldKey });
-    setEditValue((lead as any)[fieldKey] || '');
+    const value = (lead as Record<string, string | null>)[fieldKey];
+    setEditValue(value || '');
   };
 
   const handleCellUpdate = async (overrideValue?: string) => {
@@ -106,7 +107,7 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
       }
     }
 
-    const updates: Promise<any>[] = [];
+    const updates: Promise<unknown>[] = [];
     const inserts: Record<string, string | null>[] = [];
 
     for (let r = 0; r < matrix.length; r += 1) {
@@ -125,7 +126,7 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
         const lead = nextLeads[rowIndex];
         if (Object.keys(updatesRow).length > 0) {
           nextLeads[rowIndex] = { ...lead, ...updatesRow };
-          updates.push(supabase.from('leads').update(updatesRow).eq('id', lead.id));
+          updates.push(Promise.resolve(supabase.from('leads').update(updatesRow).eq('id', lead.id)));
         }
       } else {
         const payload: Record<string, string | null> = { name: 'New Lead', outreach_method: null };
@@ -370,9 +371,10 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
                         field.field_key === 'outreach_method'
                           ? outreachOptions
                           : [];
+                      const leadRecord = lead as Record<string, string | null>;
                       const methodLabel =
                         field.field_key === 'outreach_method'
-                          ? outreachOptions.find((option) => option.key === (lead as any)[field.field_key])?.label
+                          ? outreachOptions.find((option) => option.key === leadRecord[field.field_key])?.label
                           : null;
 
                       if (isDate) {
@@ -381,7 +383,7 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
                             key={field.id}
                             className="px-6 py-4 whitespace-nowrap text-sm text-gray-100"
                           >
-                            {formatDate((lead as any)[field.field_key])}
+                            {formatDate(leadRecord[field.field_key])}
                           </td>
                         );
                       }
@@ -437,7 +439,7 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
                             <span>
                               {field.field_key === 'outreach_method'
                                 ? methodLabel || '-'
-                                : (lead as any)[field.field_key] || '-'}
+                                : leadRecord[field.field_key] || '-'}
                             </span>
                           )}
                         </td>

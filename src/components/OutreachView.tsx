@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase, Lead, LeadField } from '../lib/supabase';
 import { Plus, Trash2 } from 'lucide-react';
 import { AddLeadModal } from './AddLeadModal';
@@ -24,25 +24,7 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
   const [bulkMethod, setBulkMethod] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
-  useEffect(() => {
-    loadData();
-    const channel = supabase
-      .channel(`leads-changes-${method}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'leads' },
-        () => {
-          loadData();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [method]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const [leadsResult, fieldsResult] = await Promise.all([
@@ -64,12 +46,31 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
     } finally {
       setLoading(false);
     }
-  };
+  }, [method]);
+
+  useEffect(() => {
+    loadData();
+    const channel = supabase
+      .channel(`leads-changes-${method}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'leads' },
+        () => {
+          loadData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [method, loadData]);
 
   const handleCellClick = (lead: Lead, fieldKey: string) => {
     setEditingCell({ leadId: lead.id, fieldKey });
     setSelectedCell({ leadId: lead.id, fieldKey });
-    setEditValue((lead as any)[fieldKey] || '');
+    const value = (lead as Record<string, string | null>)[fieldKey];
+    setEditValue(value || '');
   };
 
   const handleCellUpdate = async (overrideValue?: string) => {
@@ -117,7 +118,7 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
       }
     }
 
-    const updates: Promise<any>[] = [];
+    const updates: Promise<unknown>[] = [];
     const inserts: Record<string, string | null>[] = [];
 
     for (let r = 0; r < matrix.length; r += 1) {
@@ -136,7 +137,7 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
         const lead = nextLeads[rowIndex];
         if (Object.keys(updatesRow).length > 0) {
           nextLeads[rowIndex] = { ...lead, ...updatesRow };
-          updates.push(supabase.from('leads').update(updatesRow).eq('id', lead.id));
+          updates.push(Promise.resolve(supabase.from('leads').update(updatesRow).eq('id', lead.id)));
         }
       } else {
         const payload: Record<string, string | null> = { name: 'New Lead', outreach_method: method };
@@ -388,9 +389,10 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
                         field.field_key === 'outreach_method'
                           ? outreachOptions
                           : [];
+                      const leadRecord = lead as Record<string, string | null>;
                       const methodLabel =
                         field.field_key === 'outreach_method'
-                          ? outreachOptions.find((option) => option.key === (lead as any)[field.field_key])?.label
+                          ? outreachOptions.find((option) => option.key === leadRecord[field.field_key])?.label
                           : null;
 
                       if (isDate) {
@@ -399,7 +401,7 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
                             key={field.id}
                             className="px-6 py-4 whitespace-nowrap text-sm text-gray-100"
                           >
-                            {formatDate((lead as any)[field.field_key])}
+                            {formatDate(leadRecord[field.field_key])}
                           </td>
                         );
                       }
@@ -455,7 +457,7 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
                             <span>
                               {field.field_key === 'outreach_method'
                                 ? methodLabel || '-'
-                                : (lead as any)[field.field_key] || '-'}
+                                : leadRecord[field.field_key] || '-'}
                             </span>
                           )}
                         </td>

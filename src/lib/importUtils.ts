@@ -46,7 +46,7 @@ export async function checkDuplicates(
   const existingByPhone = new Map<string, { name: string }>();
   const existingByWebsite = new Map<string, { name: string }>();
 
-  (existingLeads || []).forEach((lead: any) => {
+  (existingLeads || []).forEach((lead: { name: string; email?: string | null; phone?: string | null; website?: string | null }) => {
     const email = normalizeEmail(lead.email);
     const phone = normalizePhone(lead.phone);
     const website = normalizeWebsite(lead.website);

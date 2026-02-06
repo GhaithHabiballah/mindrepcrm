@@ -57,7 +57,8 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
   const handleCellClick = (lead: Lead, fieldKey: string) => {
     setEditingCell({ leadId: lead.id, fieldKey });
     setSelectedCell({ leadId: lead.id, fieldKey });
-    setEditValue((lead as any)[fieldKey] || '');
+    const value = (lead as Record<string, string | null>)[fieldKey];
+    setEditValue(value || '');
   };
 
   const handleCellUpdate = async (overrideValue?: string) => {
@@ -101,7 +102,7 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
       }
     }
 
-    const updates: Promise<any>[] = [];
+    const updates: Promise<unknown>[] = [];
     const inserts: Record<string, string | null>[] = [];
 
     for (let r = 0; r < matrix.length; r += 1) {
@@ -120,7 +121,7 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
         const lead = nextLeads[rowIndex];
         if (Object.keys(updatesRow).length > 0) {
           nextLeads[rowIndex] = { ...lead, ...updatesRow };
-          updates.push(supabase.from('temp_leads').update(updatesRow).eq('id', lead.id));
+          updates.push(Promise.resolve(supabase.from('temp_leads').update(updatesRow).eq('id', lead.id)));
         }
       } else {
         const payload: Record<string, string | null> = { name: 'New Lead', outreach_method: null };
@@ -244,21 +245,22 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
       }
     }
 
-    const rows = leads.map((lead) => {
-      const row: Record<string, string | null> = {
-        name: lead.name || 'Unknown',
-        email: lead.email || null,
-        phone: lead.phone || null,
-        website: lead.website || null,
-        outreach_method: (lead as any).outreach_method || null,
-      };
-      fields.forEach((field) => {
-        const value = (lead as any)[field.field_key];
-        if (!baseColumns.has(field.field_key)) {
-          row[field.field_key] = value ?? null;
-        }
-      });
-      return row;
+      const rows = leads.map((lead) => {
+        const leadRecord = lead as Record<string, string | null>;
+        const row: Record<string, string | null> = {
+          name: lead.name || 'Unknown',
+          email: lead.email || null,
+          phone: lead.phone || null,
+          website: lead.website || null,
+          outreach_method: leadRecord.outreach_method || null,
+        };
+        fields.forEach((field) => {
+          const value = leadRecord[field.field_key];
+          if (!baseColumns.has(field.field_key)) {
+            row[field.field_key] = value ?? null;
+          }
+        });
+        return row;
     });
 
     const { error } = await supabase.from('leads').insert(rows);
@@ -500,9 +502,10 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
                       const selectOptions = field.field_key === 'outreach_method'
                         ? outreachOptions
                         : [];
+                      const leadRecord = lead as Record<string, string | null>;
                       const methodLabel =
                         field.field_key === 'outreach_method'
-                          ? outreachOptions.find((option) => option.key === (lead as any)[field.field_key])?.label
+                          ? outreachOptions.find((option) => option.key === leadRecord[field.field_key])?.label
                           : null;
                       return (
                         <td
@@ -555,7 +558,7 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
                             <span>
                               {field.field_key === 'outreach_method'
                                 ? methodLabel || '-'
-                                : (lead as any)[field.field_key] || '-'}
+                                : leadRecord[field.field_key] || '-'}
                             </span>
                           )}
                         </td>
