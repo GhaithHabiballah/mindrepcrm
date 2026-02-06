@@ -120,10 +120,10 @@ export function AddLeadModal({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full p-6">
+      <div className="bg-gray-950 border border-gray-800 rounded-lg shadow-xl max-w-2xl w-full p-6">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold text-gray-900">Add Lead</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <h2 className="text-xl font-bold text-white">Add Lead</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-white">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -144,14 +144,14 @@ export function AddLeadModal({
 
               return (
                 <div key={field.id} className="space-y-1">
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm font-medium text-gray-300">
                     {field.label}
                   </label>
                   {isSelect ? (
                     <select
                       value={value}
                       onChange={(e) => handleChange(field.field_key, e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-3 py-2 border border-gray-700 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 bg-gray-900 text-white"
                     >
                       <option value="">-</option>
                       {outreachOptions.map((option) => (
@@ -165,7 +165,7 @@ export function AddLeadModal({
                       type={inputType}
                       value={value}
                       onChange={(e) => handleChange(field.field_key, e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-3 py-2 border border-gray-700 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 bg-gray-900 text-white"
                     />
                   )}
                 </div>
@@ -174,23 +174,23 @@ export function AddLeadModal({
           </div>
 
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm">
-              {error}
-            </div>
-          )}
+          <div className="bg-red-950 border border-red-800 text-red-200 px-4 py-3 rounded-md text-sm">
+            {error}
+          </div>
+        )}
 
           <div className="flex gap-3 justify-end">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 font-medium"
+              className="px-4 py-2 bg-gray-800 text-gray-200 rounded-md hover:bg-gray-700 font-medium"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+              className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
             >
               {loading ? 'Adding...' : 'Add Lead'}
             </button>

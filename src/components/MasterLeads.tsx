@@ -101,41 +101,41 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
   };
 
   if (loading) {
-    return <div className="text-gray-600">Loading...</div>;
+    return <div className="text-gray-400">Loading...</div>;
   }
 
   return (
     <div>
       <div className="mb-4 flex justify-between items-center">
-        <h2 className="text-lg font-semibold text-gray-900">All Leads</h2>
+        <h2 className="text-lg font-semibold text-white">All Leads</h2>
         <button
           onClick={handleAddLead}
-          className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm font-medium"
+          className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-500 text-sm font-medium"
         >
           <Plus className="w-4 h-4" />
           Add Lead
         </button>
       </div>
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="bg-gray-950 rounded-lg shadow overflow-hidden border border-gray-800">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
+          <table className="min-w-full divide-y divide-gray-800">
+            <thead className="bg-gray-900">
               <tr>
                 {fields.map((field) => (
                   <th
                     key={field.id}
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider"
                   >
                     {field.label}
                   </th>
                 ))}
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                   Actions
                 </th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody className="bg-gray-950 divide-y divide-gray-800">
               {leads.length === 0 ? (
                 <tr>
                   <td colSpan={fields.length + 1} className="px-6 py-4 text-center text-gray-500">
@@ -144,7 +144,7 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
                 </tr>
               ) : (
                 leads.map((lead) => (
-                  <tr key={lead.id} className="hover:bg-gray-50">
+                  <tr key={lead.id} className="hover:bg-gray-900">
                     {fields.map((field) => {
                       const isSelect = isSelectField(field.field_key, field.type);
                       const isDate = isDateField(field.field_key, field.type);
@@ -157,7 +157,7 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
                         return (
                           <td
                             key={field.id}
-                            className="px-6 py-4 whitespace-nowrap text-sm text-gray-900"
+                            className="px-6 py-4 whitespace-nowrap text-sm text-gray-100"
                           >
                             {formatDate((lead as any)[field.field_key])}
                           </td>
@@ -167,7 +167,7 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
                       return (
                         <td
                           key={field.id}
-                          className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 cursor-pointer hover:bg-blue-50"
+                          className="px-6 py-4 whitespace-nowrap text-sm text-gray-100 cursor-pointer hover:bg-gray-800"
                           onClick={() => handleCellClick(lead, field.field_key)}
                         >
                           {editingCell?.leadId === lead.id && editingCell?.fieldKey === field.field_key ? (
@@ -179,7 +179,7 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
                                   handleCellUpdate(e.target.value);
                                 }}
                                 autoFocus
-                                className="w-full px-2 py-1 border border-blue-500 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                className="w-full px-2 py-1 border border-purple-500 rounded focus:outline-none focus:ring-2 focus:ring-purple-500 bg-gray-900 text-white"
                               >
                                 <option value="">-</option>
                                 {selectOptions.map(option => (
@@ -199,7 +199,7 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
                                   if (e.key === 'Escape') setEditingCell(null);
                                 }}
                                 autoFocus
-                                className="w-full px-2 py-1 border border-blue-500 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                className="w-full px-2 py-1 border border-purple-500 rounded focus:outline-none focus:ring-2 focus:ring-purple-500 bg-gray-900 text-white"
                               />
                             )
                           ) : (
@@ -211,7 +211,7 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       <button
                         onClick={() => handleDeleteLead(lead.id)}
-                        className="text-red-600 hover:text-red-800"
+                        className="text-red-400 hover:text-red-300"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>

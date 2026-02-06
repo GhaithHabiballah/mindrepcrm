@@ -14,15 +14,15 @@ export function TempLeads({ onImport }: TempLeadsProps) {
 
   return (
     <div>
-      <h2 className="text-lg font-semibold text-gray-900 mb-4">Import Leads</h2>
+      <h2 className="text-lg font-semibold text-white mb-4">Import Leads</h2>
 
       <div className="flex gap-2 mb-6">
         <button
           onClick={() => setMode('smart-paste')}
           className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium text-sm ${
             mode === 'smart-paste'
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              ? 'bg-purple-600 text-white'
+              : 'bg-gray-800 text-gray-200 hover:bg-gray-700'
           }`}
         >
           <ClipboardList className="w-4 h-4" />
@@ -32,8 +32,8 @@ export function TempLeads({ onImport }: TempLeadsProps) {
           onClick={() => setMode('file-upload')}
           className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium text-sm ${
             mode === 'file-upload'
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              ? 'bg-purple-600 text-white'
+              : 'bg-gray-800 text-gray-200 hover:bg-gray-700'
           }`}
         >
           <FileSpreadsheet className="w-4 h-4" />
@@ -41,7 +41,7 @@ export function TempLeads({ onImport }: TempLeadsProps) {
         </button>
       </div>
 
-      <div className="bg-white rounded-lg shadow p-6">
+      <div className="bg-gray-950 rounded-lg shadow p-6 border border-gray-800">
         {mode === 'smart-paste' && <SmartPaste onImport={onImport} />}
         {mode === 'file-upload' && <FileUpload onImport={onImport} />}
       </div>

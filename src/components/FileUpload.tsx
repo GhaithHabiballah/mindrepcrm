@@ -226,14 +226,14 @@ export function FileUpload({ onImport }: FileUploadProps) {
           onDragLeave={() => setDragOver(false)}
           onDrop={handleDrop}
           className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-            dragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300'
+            dragOver ? 'border-purple-500 bg-purple-950' : 'border-gray-700'
           }`}
         >
           <Upload className="w-10 h-10 mx-auto text-gray-400 mb-3" />
           <p className="text-gray-600 mb-2">
             {file ? file.name : 'Drag & drop a CSV or Excel file here'}
           </p>
-          <label className="inline-block px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 cursor-pointer font-medium text-sm">
+          <label className="inline-block px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-500 cursor-pointer font-medium text-sm">
             Choose File
             <input
               type="file"
@@ -259,13 +259,13 @@ export function FileUpload({ onImport }: FileUploadProps) {
       <div className="space-y-4">
         <button
           onClick={() => setStep('upload')}
-          className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+          className="text-purple-300 hover:text-purple-200 text-sm font-medium"
         >
           &larr; Back to Upload
         </button>
 
         <div>
-          <h3 className="font-semibold text-gray-900 mb-2">
+          <h3 className="font-semibold text-white mb-2">
             Map columns from "{file?.name}"
           </h3>
           <p className="text-sm text-gray-500 mb-4">
@@ -273,11 +273,11 @@ export function FileUpload({ onImport }: FileUploadProps) {
           </p>
         </div>
 
-        <div className="bg-white rounded-lg border border-gray-200 divide-y divide-gray-200">
+        <div className="bg-gray-950 rounded-lg border border-gray-800 divide-y divide-gray-800">
           {headers.map((header) => (
             <div key={header} className="flex items-center justify-between px-4 py-3">
               <div>
-                <span className="font-medium text-gray-900">{header}</span>
+                <span className="font-medium text-gray-100">{header}</span>
                 <span className="text-xs text-gray-400 ml-2">
                   e.g. "{rows[0]?.[headers.indexOf(header)] || ''}"
                 </span>
@@ -285,7 +285,7 @@ export function FileUpload({ onImport }: FileUploadProps) {
               <select
                 value={mapping[header] || ''}
                 onChange={(e) => setMapping((prev) => ({ ...prev, [header]: e.target.value }))}
-                className="px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="px-3 py-1.5 border border-gray-700 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 bg-gray-900 text-white"
               >
                 <option value="">-- Skip --</option>
                 {fieldOptions.map((opt) => (
@@ -306,7 +306,7 @@ export function FileUpload({ onImport }: FileUploadProps) {
 
         <button
           onClick={handleMapping}
-          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium"
+          className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-500 font-medium"
         >
           Continue to Preview
         </button>
@@ -319,7 +319,7 @@ export function FileUpload({ onImport }: FileUploadProps) {
     <div className="space-y-4">
       <button
         onClick={() => setStep('mapping')}
-        className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+        className="text-purple-300 hover:text-purple-200 text-sm font-medium"
       >
         &larr; Back to Mapping
       </button>

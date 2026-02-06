@@ -24,20 +24,20 @@ export function Auth() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-gray-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-lg p-8 w-full max-w-md">
+    <div className="min-h-screen bg-gradient-to-br from-black via-gray-950 to-purple-950 flex items-center justify-center p-4">
+      <div className="bg-gray-950 border border-gray-800 rounded-lg shadow-lg p-8 w-full max-w-md">
         <div className="flex justify-center mb-6">
-          <div className="bg-blue-100 p-3 rounded-full">
-            <Lock className="w-6 h-6 text-blue-600" />
+          <div className="bg-purple-950 p-3 rounded-full border border-purple-800">
+            <Lock className="w-6 h-6 text-purple-300" />
           </div>
         </div>
 
-        <h1 className="text-2xl font-bold text-gray-900 mb-2 text-center">Shared CRM</h1>
-        <p className="text-gray-600 text-center mb-6">Enter the team password to access</p>
+        <h1 className="text-2xl font-bold text-white mb-2 text-center">Shared CRM</h1>
+        <p className="text-gray-400 text-center mb-6">Enter the team password to access</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="password" className="block text-sm font-medium text-gray-300 mb-1">
               Password
             </label>
             <input
@@ -47,13 +47,13 @@ export function Auth() {
               onChange={(e) => setPassword(e.target.value)}
               required
               autoFocus
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-gray-700 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 bg-gray-900 text-white"
               placeholder="Enter password"
             />
           </div>
 
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm">
+            <div className="bg-red-950 border border-red-800 text-red-200 px-4 py-3 rounded-md text-sm">
               {error}
             </div>
           )}
@@ -61,7 +61,7 @@ export function Auth() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-colors"
+            className="w-full bg-purple-600 text-white py-2 px-4 rounded-md hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-colors"
           >
             {loading ? 'Verifying...' : 'Enter'}
           </button>

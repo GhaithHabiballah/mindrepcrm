@@ -92,31 +92,31 @@ export function CRM() {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200">
+    <div className="min-h-screen bg-black text-gray-100">
+      <header className="bg-gray-950 border-b border-gray-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex justify-between items-center h-16">
-              <h1 className="text-xl font-bold text-gray-900">Outbound CRM</h1>
+              <h1 className="text-xl font-bold text-white">Outbound CRM</h1>
             <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-green-50 text-green-700 text-xs font-medium border border-green-200">
-                <span className="inline-block w-2 h-2 rounded-full bg-green-500" />
+              <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-purple-950 text-purple-200 text-xs font-medium border border-purple-700">
+                <span className="inline-block w-2 h-2 rounded-full bg-purple-400" />
                 Realtime On
               </div>
               <button
                 onClick={() => setShowAddCategory(true)}
-                className="px-4 py-2 bg-gray-900 text-white rounded-md hover:bg-black text-sm font-medium"
+                className="px-4 py-2 bg-purple-900 text-white rounded-md hover:bg-purple-800 text-sm font-medium"
               >
                 Add Category
               </button>
               <button
                 onClick={() => setShowAddField(true)}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium"
+                className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-500 text-sm font-medium"
               >
                 Add New Lead Info
               </button>
               <button
                 onClick={() => signOut()}
-                className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:text-gray-900"
+                className="flex items-center gap-2 px-4 py-2 text-gray-300 hover:text-white"
               >
                 <LogOut className="w-4 h-4" />
                 Sign Out
@@ -126,7 +126,7 @@ export function CRM() {
         </div>
       </header>
 
-      <div className="border-b border-gray-200 bg-white">
+      <div className="border-b border-gray-800 bg-gray-950">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <nav className="flex space-x-8">
             {tabs.map((tab) => {
@@ -137,8 +137,8 @@ export function CRM() {
                     onClick={() => setActiveTab(tab.id)}
                     className={`py-4 px-1 border-b-2 font-medium text-sm ${
                       activeTab === tab.id
-                        ? 'border-blue-500 text-blue-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                        ? 'border-purple-400 text-purple-200'
+                        : 'border-transparent text-gray-400 hover:text-white hover:border-gray-600'
                     }`}
                   >
                     {tab.label}
@@ -149,7 +149,7 @@ export function CRM() {
                         e.stopPropagation();
                         handleDeleteMethod(tab.id, tab.label);
                       }}
-                      className="ml-1 p-0.5 rounded-full text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                      className="ml-1 p-0.5 rounded-full text-gray-500 hover:text-red-400 hover:bg-red-950 opacity-0 group-hover:opacity-100 transition-opacity"
                       title={`Delete ${tab.label}`}
                     >
                       <X className="w-3 h-3" />

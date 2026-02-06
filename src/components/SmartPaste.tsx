@@ -67,7 +67,7 @@ export function SmartPaste({ onImport }: SmartPasteProps) {
       <div className="space-y-4">
         <button
           onClick={() => setStep('input')}
-          className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+          className="text-purple-300 hover:text-purple-200 text-sm font-medium"
         >
           &larr; Back to Edit
         </button>
@@ -80,7 +80,7 @@ export function SmartPaste({ onImport }: SmartPasteProps) {
           onRemoveLead={handleRemoveLead}
         />
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm">
+          <div className="bg-red-950 border border-red-800 text-red-200 px-4 py-3 rounded-md text-sm">
             {error}
           </div>
         )}
@@ -91,7 +91,7 @@ export function SmartPaste({ onImport }: SmartPasteProps) {
   return (
     <div className="space-y-4">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label className="block text-sm font-medium text-gray-300 mb-2">
           Paste any text containing contact info
         </label>
         <textarea
@@ -102,12 +102,12 @@ export function SmartPaste({ onImport }: SmartPasteProps) {
           }}
           placeholder={`Paste email signatures, bios, contact pages, etc.\n\nExamples:\n\nJohn Doe\njohn@company.com\n(555) 123-4567\nwww.company.com\n\n---\n\nJane Smith\njane@example.com\n555-987-6543`}
           rows={12}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+          className="w-full px-3 py-2 border border-gray-700 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono text-sm bg-gray-900 text-white"
         />
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm">
+        <div className="bg-red-950 border border-red-800 text-red-200 px-4 py-3 rounded-md text-sm">
           {error}
         </div>
       )}
@@ -115,7 +115,7 @@ export function SmartPaste({ onImport }: SmartPasteProps) {
       <button
         onClick={handleExtract}
         disabled={!inputText.trim()}
-        className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+        className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
       >
         Extract Contacts
       </button>
