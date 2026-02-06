@@ -49,6 +49,27 @@ export function AddLeadModal({
 
     setLoading(true);
     try {
+      const baseColumns = new Set([
+        'name',
+        'email',
+        'phone',
+        'website',
+        'outreach_method',
+      ]);
+
+      const dynamicFields = fields.filter((field) => !baseColumns.has(field.field_key));
+      if (dynamicFields.length > 0) {
+        for (const field of dynamicFields) {
+          const { error: addColumnError } = await supabase.rpc('add_lead_column', {
+            column_name: field.field_key,
+            column_type: 'text',
+          });
+          if (addColumnError) {
+            throw addColumnError;
+          }
+        }
+      }
+
       const payload: Record<string, string | null> = {};
       fields.forEach((field) => {
         const raw = values[field.field_key];
@@ -68,7 +89,11 @@ export function AddLeadModal({
       onSuccess();
     } catch (err) {
       console.error('Error adding lead:', err);
-      setError(err instanceof Error ? err.message : 'Failed to add lead');
+      if (err && typeof err === 'object' && 'message' in err) {
+        setError(String((err as { message?: string }).message || 'Failed to add lead'));
+      } else {
+        setError('Failed to add lead');
+      }
       setLoading(false);
     }
   };
