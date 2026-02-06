@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { LogOut } from 'lucide-react';
+import { LogOut, X } from 'lucide-react';
 import { MasterLeads } from './MasterLeads';
 import { OutreachView } from './OutreachView';
 import { TempLeads } from './TempLeads';
@@ -67,6 +67,24 @@ export function CRM() {
     };
   }, [loadMethods]);
 
+  const handleDeleteMethod = async (key: string, label: string) => {
+    if (!confirm(`Delete "${label}" outreach method? Leads using it won't be deleted, but their outreach method will become unlinked.`)) return;
+
+    try {
+      const { error } = await supabase
+        .from('outreach_methods')
+        .delete()
+        .eq('key', key);
+
+      if (error) throw error;
+
+      if (activeTab === key) setActiveTab('master');
+      loadMethods();
+    } catch (error) {
+      console.error('Error deleting outreach method:', error);
+    }
+  };
+
   const tabs: { id: Tab; label: string }[] = [
     { id: 'master', label: 'Master Leads' },
     ...methods.map((method) => ({ id: method.key, label: method.label })),
@@ -111,19 +129,35 @@ export function CRM() {
       <div className="border-b border-gray-200 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <nav className="flex space-x-8">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === tab.id
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
+            {tabs.map((tab) => {
+              const isOutreachTab = tab.id !== 'master' && tab.id !== 'temp';
+              return (
+                <div key={tab.id} className="relative flex items-center group">
+                  <button
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                      activeTab === tab.id
+                        ? 'border-blue-500 text-blue-600'
+                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                  {isOutreachTab && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteMethod(tab.id, tab.label);
+                      }}
+                      className="ml-1 p-0.5 rounded-full text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                      title={`Delete ${tab.label}`}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </nav>
         </div>
       </div>
