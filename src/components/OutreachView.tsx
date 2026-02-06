@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { supabase, Lead, LeadField } from '../lib/supabase';
 import { Plus, Trash2 } from 'lucide-react';
 import { AddLeadModal } from './AddLeadModal';
-import { isSelectField } from '../lib/leadFieldConfig';
+import { isSelectField, isDateField, formatDate } from '../lib/leadFieldConfig';
 
 type OutreachViewProps = {
   method: string;
@@ -159,10 +159,23 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
                   <tr key={lead.id} className="hover:bg-gray-50">
                     {fields.map((field) => {
                       const isSelect = isSelectField(field.field_key, field.type);
+                      const isDate = isDateField(field.field_key, field.type);
                       const selectOptions =
                         field.field_key === 'outreach_method'
                           ? outreachOptions.map((option) => option.key)
                           : [];
+
+                      if (isDate) {
+                        return (
+                          <td
+                            key={field.id}
+                            className="px-6 py-4 whitespace-nowrap text-sm text-gray-900"
+                          >
+                            {formatDate((lead as any)[field.field_key])}
+                          </td>
+                        );
+                      }
+
                       return (
                         <td
                           key={field.id}

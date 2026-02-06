@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { supabase, LeadField } from '../lib/supabase';
 import { X } from 'lucide-react';
-import { isSelectField } from '../lib/leadFieldConfig';
+import { isSelectField, AUTO_FIELDS } from '../lib/leadFieldConfig';
 
 type OutreachOption = {
   key: string;
@@ -23,9 +23,14 @@ export function AddLeadModal({
   onClose,
   onSuccess,
 }: AddLeadModalProps) {
+  const editableFields = useMemo(
+    () => fields.filter((f) => !AUTO_FIELDS.has(f.field_key)),
+    [fields]
+  );
+
   const initialValues = useMemo(() => {
     const values: Record<string, string> = {};
-    fields.forEach((field) => {
+    editableFields.forEach((field) => {
       if (field.field_key === 'outreach_method' && defaultOutreachMethod) {
         values[field.field_key] = defaultOutreachMethod;
       } else {
@@ -33,7 +38,7 @@ export function AddLeadModal({
       }
     });
     return values;
-  }, [fields, defaultOutreachMethod]);
+  }, [editableFields, defaultOutreachMethod]);
 
   const [values, setValues] = useState<Record<string, string>>(initialValues);
   const [loading, setLoading] = useState(false);
@@ -57,7 +62,7 @@ export function AddLeadModal({
         'outreach_method',
       ]);
 
-      const dynamicFields = fields.filter((field) => !baseColumns.has(field.field_key));
+      const dynamicFields = editableFields.filter((field) => !baseColumns.has(field.field_key));
       if (dynamicFields.length > 0) {
         for (const field of dynamicFields) {
           const { error: addColumnError } = await supabase.rpc('add_lead_column', {
@@ -71,7 +76,7 @@ export function AddLeadModal({
       }
 
       const payload: Record<string, string | null> = {};
-      fields.forEach((field) => {
+      editableFields.forEach((field) => {
         const raw = values[field.field_key];
         payload[field.field_key] = raw?.trim() ? raw.trim() : null;
       });
@@ -125,7 +130,7 @@ export function AddLeadModal({
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {fields.map((field) => {
+            {editableFields.map((field) => {
               const isSelect = isSelectField(field.field_key, field.type);
               const value = values[field.field_key] ?? '';
               const inputType =
