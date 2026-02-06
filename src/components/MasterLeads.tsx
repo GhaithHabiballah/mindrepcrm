@@ -4,6 +4,7 @@ import { isSelectField, isDateField, formatDate } from '../lib/leadFieldConfig';
 import { Plus, Trash2 } from 'lucide-react';
 import { AddLeadModal } from './AddLeadModal';
 import { parseClipboard } from '../lib/pasteGrid';
+import { GridPrefs, SavedView, loadGridPrefs, saveGridPrefs, loadViews, saveViews, moveInArray } from '../lib/gridPrefs';
 
 type MasterLeadsProps = {
   outreachOptions: { key: string; label: string }[];
@@ -20,6 +21,11 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkMethod, setBulkMethod] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [prefs, setPrefs] = useState<GridPrefs>(() => loadGridPrefs('master'));
+  const [views, setViews] = useState<SavedView[]>(() => loadViews('master'));
+  const [showColumns, setShowColumns] = useState(false);
+  const [showViews, setShowViews] = useState(false);
+  const [activeView, setActiveView] = useState<string>('');
 
   useEffect(() => {
     loadData();
@@ -66,6 +72,48 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
     setEditValue(value || '');
   };
 
+  const selectCellByIndex = (rowIndex: number, colIndex: number) => {
+    const row = filteredLeads[rowIndex];
+    const col = orderedFields[colIndex];
+    if (!row || !col) return;
+    setSelectedCell({ leadId: row.id, fieldKey: col.field_key });
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (editingCell) return;
+    if (!selectedCell) {
+      if (filteredLeads.length > 0 && orderedFields.length > 0) {
+        selectCellByIndex(0, 0);
+      }
+      return;
+    }
+
+    const rowIndex = filteredLeads.findIndex((l) => l.id === selectedCell.leadId);
+    const colIndex = orderedFields.findIndex((f) => f.field_key === selectedCell.fieldKey);
+    if (rowIndex === -1 || colIndex === -1) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      selectCellByIndex(Math.min(rowIndex + 1, filteredLeads.length - 1), colIndex);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      selectCellByIndex(Math.max(rowIndex - 1, 0), colIndex);
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      selectCellByIndex(rowIndex, Math.min(colIndex + 1, orderedFields.length - 1));
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      selectCellByIndex(rowIndex, Math.max(colIndex - 1, 0));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const lead = filteredLeads[rowIndex];
+      const fieldKey = orderedFields[colIndex].field_key;
+      setEditingCell({ leadId: lead.id, fieldKey });
+      const value = (lead as Record<string, string | null>)[fieldKey];
+      setEditValue(value || '');
+    }
+  };
+
   const handleCellUpdate = async (overrideValue?: string) => {
     if (!editingCell) return;
 
@@ -96,7 +144,7 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
     if (matrix.length === 0) return;
 
     const startRowIndex = leads.findIndex((lead) => lead.id === leadId);
-    const fieldIndex = fields.findIndex((field) => field.field_key === fieldKey);
+    const fieldIndex = orderedFields.findIndex((field) => field.field_key === fieldKey);
     if (startRowIndex === -1 || fieldIndex === -1) return;
 
     const nextLeads = [...leads];
@@ -116,8 +164,8 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
 
       for (let c = 0; c < matrix[r].length; c += 1) {
         const colIndex = fieldIndex + c;
-        if (colIndex >= fields.length) break;
-        const targetField = fields[colIndex];
+        if (colIndex >= orderedFields.length) break;
+        const targetField = orderedFields[colIndex];
         const value = matrix[r][c]?.trim() ?? '';
         updatesRow[targetField.field_key] = value.length > 0 ? value : null;
       }
@@ -128,7 +176,7 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
           nextLeads[rowIndex] = { ...lead, ...updatesRow };
           updates.push(Promise.resolve(supabase.from('leads').update(updatesRow).eq('id', lead.id)));
         }
-      } else {
+      } else if (prefs.autoAddRows) {
         const payload: Record<string, string | null> = { name: 'New Lead', outreach_method: null };
         for (const [key, val] of Object.entries(updatesRow)) {
           payload[key] = val;
@@ -153,6 +201,7 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
     if (matrix.length === 0) return;
 
     if (leads.length === 0 && fields.length > 0) {
+      if (!prefs.autoAddRows) return;
       const baseColumns = new Set(['name', 'email', 'phone', 'website', 'outreach_method']);
       for (const field of fields) {
         if (!baseColumns.has(field.field_key)) {
@@ -162,7 +211,7 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
       const inserts = matrix.map((row) => {
         const payload: Record<string, string | null> = { name: 'New Lead', outreach_method: null };
         for (let c = 0; c < row.length; c += 1) {
-          const field = fields[c];
+          const field = orderedFields[c];
           if (!field) break;
           const value = row[c]?.trim() ?? '';
           payload[field.field_key] = value.length > 0 ? value : null;
@@ -241,6 +290,80 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
     });
   }, [leads, searchQuery]);
 
+  const orderedFields = useMemo(() => {
+    const order = prefs.order.length > 0 ? prefs.order : fields.map((f) => f.field_key);
+    const orderMap = new Map(fields.map((f) => [f.field_key, f]));
+    const ordered = order.map((key) => orderMap.get(key)).filter(Boolean) as LeadField[];
+    const missing = fields.filter((f) => !order.includes(f.field_key));
+    return [...ordered, ...missing].filter((f) => !prefs.hidden.includes(f.field_key));
+  }, [fields, prefs.order, prefs.hidden]);
+
+  const allFieldsOrdered = useMemo(() => {
+    const order = prefs.order.length > 0 ? prefs.order : fields.map((f) => f.field_key);
+    const orderMap = new Map(fields.map((f) => [f.field_key, f]));
+    const ordered = order.map((key) => orderMap.get(key)).filter(Boolean) as LeadField[];
+    const missing = fields.filter((f) => !order.includes(f.field_key));
+    return [...ordered, ...missing];
+  }, [fields, prefs.order]);
+
+  useEffect(() => {
+    saveGridPrefs('master', prefs);
+  }, [prefs]);
+
+  useEffect(() => {
+    saveViews('master', views);
+  }, [views]);
+
+  const toggleFieldVisibility = (fieldKey: string) => {
+    setPrefs((prev) => {
+      const hidden = new Set(prev.hidden);
+      if (hidden.has(fieldKey)) hidden.delete(fieldKey);
+      else hidden.add(fieldKey);
+      return { ...prev, hidden: Array.from(hidden) };
+    });
+  };
+
+  const moveField = (fieldKey: string, direction: 'up' | 'down') => {
+    setPrefs((prev) => {
+      const order = prev.order.length > 0 ? [...prev.order] : fields.map((f) => f.field_key);
+      const idx = order.indexOf(fieldKey);
+      const nextIndex = direction === 'up' ? idx - 1 : idx + 1;
+      return { ...prev, order: moveInArray(order, idx, nextIndex) };
+    });
+  };
+
+  const saveCurrentView = () => {
+    const name = prompt('Name this view');
+    if (!name) return;
+    const newView: SavedView = {
+      name,
+      searchQuery,
+      order: prefs.order,
+      hidden: prefs.hidden,
+      autoAddRows: prefs.autoAddRows,
+    };
+    setViews((prev) => [...prev.filter((v) => v.name !== name), newView]);
+    setActiveView(name);
+  };
+
+  const applyView = (name: string) => {
+    const view = views.find((v) => v.name === name);
+    if (!view) return;
+    setSearchQuery(view.searchQuery);
+    setPrefs((prev) => ({
+      ...prev,
+      order: view.order,
+      hidden: view.hidden,
+      autoAddRows: view.autoAddRows,
+    }));
+    setActiveView(name);
+  };
+
+  const deleteView = (name: string) => {
+    setViews((prev) => prev.filter((v) => v.name !== name));
+    if (activeView === name) setActiveView('');
+  };
+
   const handleAddLead = () => {
     setShowAddLead(true);
   };
@@ -273,6 +396,92 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
             placeholder="Search..."
             className="px-3 py-2 rounded-md bg-gray-900 border border-gray-700 text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
           />
+          <div className="relative">
+            <button
+              onClick={() => setShowColumns((prev) => !prev)}
+              className="px-3 py-2 rounded-md bg-gray-800 text-gray-200 text-sm hover:bg-gray-700"
+            >
+              Columns
+            </button>
+            {showColumns && (
+              <div className="absolute right-0 mt-2 w-64 bg-gray-950 border border-gray-800 rounded-md p-3 z-10">
+                <div className="text-xs text-gray-400 mb-2">Show / reorder</div>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {allFieldsOrdered.map((field) => (
+                    <div key={field.field_key} className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={!prefs.hidden.includes(field.field_key)}
+                        onChange={() => toggleFieldVisibility(field.field_key)}
+                      />
+                      <span className="text-sm text-gray-200 flex-1">{field.label}</span>
+                      <button
+                        onClick={() => moveField(field.field_key, 'up')}
+                        className="text-gray-400 hover:text-white text-xs"
+                      >
+                        ▲
+                      </button>
+                      <button
+                        onClick={() => moveField(field.field_key, 'down')}
+                        className="text-gray-400 hover:text-white text-xs"
+                      >
+                        ▼
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 flex items-center justify-between text-xs text-gray-400">
+                  <span>Auto‑add rows on paste</span>
+                  <input
+                    type="checkbox"
+                    checked={prefs.autoAddRows}
+                    onChange={(e) => setPrefs((prev) => ({ ...prev, autoAddRows: e.target.checked }))}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="relative">
+            <button
+              onClick={() => setShowViews((prev) => !prev)}
+              className="px-3 py-2 rounded-md bg-gray-800 text-gray-200 text-sm hover:bg-gray-700"
+            >
+              Views
+            </button>
+            {showViews && (
+              <div className="absolute right-0 mt-2 w-56 bg-gray-950 border border-gray-800 rounded-md p-3 z-10">
+                <button
+                  onClick={saveCurrentView}
+                  className="w-full text-left text-sm text-purple-200 hover:text-white mb-2"
+                >
+                  Save current view
+                </button>
+                <div className="space-y-2">
+                  {views.length === 0 && (
+                    <div className="text-xs text-gray-500">No saved views</div>
+                  )}
+                  {views.map((view) => (
+                    <div key={view.name} className="flex items-center gap-2">
+                      <button
+                        onClick={() => applyView(view.name)}
+                        className={`flex-1 text-left text-sm ${
+                          activeView === view.name ? 'text-white' : 'text-gray-300'
+                        } hover:text-white`}
+                      >
+                        {view.name}
+                      </button>
+                      <button
+                        onClick={() => deleteView(view.name)}
+                        className="text-xs text-red-400 hover:text-red-300"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
           <button
             onClick={handleAddLead}
             className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-500 text-sm font-medium"
@@ -313,6 +522,10 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
         </div>
       )}
 
+      <div className="mb-3 text-xs text-gray-400">
+        Tip: Paste anywhere in the grid (Ctrl+V). Rows will auto‑add if enabled.
+      </div>
+
       <div
         className="bg-gray-950 rounded-lg shadow overflow-hidden border border-gray-800"
         onPaste={(e) => {
@@ -322,6 +535,8 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
             handleGridPaste(text);
           }
         }}
+        tabIndex={0}
+        onKeyDown={handleKeyDown}
       >
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-800">
@@ -334,7 +549,7 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
                     onChange={toggleSelectAll}
                   />
                 </th>
-                {fields.map((field) => (
+                {orderedFields.map((field) => (
                   <th
                     key={field.id}
                     className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider"
@@ -350,7 +565,7 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
             <tbody className="bg-gray-950 divide-y divide-gray-800">
               {filteredLeads.length === 0 ? (
                 <tr>
-                  <td colSpan={fields.length + 2} className="px-6 py-4 text-center text-gray-500">
+                  <td colSpan={orderedFields.length + 2} className="px-6 py-4 text-center text-gray-500">
                     No leads yet. Click "Add Lead" to get started.
                   </td>
                 </tr>
@@ -364,7 +579,7 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
                         onChange={() => toggleSelect(lead.id)}
                       />
                     </td>
-                    {fields.map((field) => {
+                    {orderedFields.map((field) => {
                       const isSelect = isSelectField(field.field_key, field.type);
                       const isDate = isDateField(field.field_key, field.type);
                       const selectOptions =
@@ -391,7 +606,11 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
                       return (
                         <td
                           key={field.id}
-                          className="px-6 py-4 whitespace-nowrap text-sm text-gray-100 cursor-pointer hover:bg-gray-800"
+                          className={`px-6 py-4 whitespace-nowrap text-sm text-gray-100 cursor-pointer hover:bg-gray-800 ${
+                            selectedCell?.leadId === lead.id && selectedCell?.fieldKey === field.field_key
+                              ? 'ring-1 ring-purple-500'
+                              : ''
+                          }`}
                           onClick={() => handleCellClick(lead, field.field_key)}
                         >
                           {editingCell?.leadId === lead.id && editingCell?.fieldKey === field.field_key ? (
@@ -457,6 +676,18 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
                 ))
               )}
             </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={orderedFields.length + 2} className="px-6 py-3">
+                  <button
+                    onClick={handleAddLead}
+                    className="text-sm text-purple-300 hover:text-white"
+                  >
+                    + Add row
+                  </button>
+                </td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       </div>
