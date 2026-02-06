@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase, Lead, LeadField } from '../lib/supabase';
+import { getSelectOptions, isSelectField } from '../lib/leadFieldConfig';
 import { Plus, Trash2 } from 'lucide-react';
 
 export function MasterLeads() {
@@ -38,20 +39,21 @@ export function MasterLeads() {
     setEditValue((lead as any)[fieldKey] || '');
   };
 
-  const handleCellUpdate = async () => {
+  const handleCellUpdate = async (overrideValue?: string) => {
     if (!editingCell) return;
 
     try {
+      const nextValue = overrideValue ?? editValue;
       const { error } = await supabase
         .from('leads')
-        .update({ [editingCell.fieldKey]: editValue || null })
+        .update({ [editingCell.fieldKey]: nextValue || null })
         .eq('id', editingCell.leadId);
 
       if (error) throw error;
 
       setLeads(leads.map(lead =>
         lead.id === editingCell.leadId
-          ? { ...lead, [editingCell.fieldKey]: editValue || null }
+          ? { ...lead, [editingCell.fieldKey]: nextValue || null }
           : lead
       ));
     } catch (error) {
@@ -64,7 +66,7 @@ export function MasterLeads() {
 
   const handleAddLead = async () => {
     try {
-      const newLead = { name: 'New Lead' };
+      const newLead = { name: 'New Lead', outreach_method: 'email' };
       const { data, error } = await supabase
         .from('leads')
         .insert([newLead])
@@ -137,30 +139,52 @@ export function MasterLeads() {
               ) : (
                 leads.map((lead) => (
                   <tr key={lead.id} className="hover:bg-gray-50">
-                    {fields.map((field) => (
-                      <td
-                        key={field.id}
-                        className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 cursor-pointer hover:bg-blue-50"
-                        onClick={() => handleCellClick(lead, field.field_key)}
-                      >
-                        {editingCell?.leadId === lead.id && editingCell?.fieldKey === field.field_key ? (
-                          <input
-                            type="text"
-                            value={editValue}
-                            onChange={(e) => setEditValue(e.target.value)}
-                            onBlur={handleCellUpdate}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') handleCellUpdate();
-                              if (e.key === 'Escape') setEditingCell(null);
-                            }}
-                            autoFocus
-                            className="w-full px-2 py-1 border border-blue-500 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                        ) : (
-                          <span>{(lead as any)[field.field_key] || '-'}</span>
-                        )}
-                      </td>
-                    ))}
+                    {fields.map((field) => {
+                      const isSelect = isSelectField(field.field_key, field.type);
+                      return (
+                        <td
+                          key={field.id}
+                          className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 cursor-pointer hover:bg-blue-50"
+                          onClick={() => handleCellClick(lead, field.field_key)}
+                        >
+                          {editingCell?.leadId === lead.id && editingCell?.fieldKey === field.field_key ? (
+                            isSelect ? (
+                              <select
+                                value={editValue}
+                                onChange={(e) => {
+                                  setEditValue(e.target.value);
+                                  handleCellUpdate(e.target.value);
+                                }}
+                                autoFocus
+                                className="w-full px-2 py-1 border border-blue-500 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              >
+                                <option value="">-</option>
+                                {getSelectOptions(field.field_key).map(option => (
+                                  <option key={option} value={option}>
+                                    {option}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <input
+                                type="text"
+                                value={editValue}
+                                onChange={(e) => setEditValue(e.target.value)}
+                                onBlur={() => handleCellUpdate()}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleCellUpdate();
+                                  if (e.key === 'Escape') setEditingCell(null);
+                                }}
+                                autoFocus
+                                className="w-full px-2 py-1 border border-blue-500 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              />
+                            )
+                          ) : (
+                            <span>{(lead as any)[field.field_key] || '-'}</span>
+                          )}
+                        </td>
+                      );
+                    })}
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       <button
                         onClick={() => handleDeleteLead(lead.id)}

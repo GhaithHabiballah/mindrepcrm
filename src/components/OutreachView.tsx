@@ -1,28 +1,18 @@
 import { useEffect, useState } from 'react';
-import { supabase, OutreachEvent, Lead, LeadField } from '../lib/supabase';
+import { supabase, Lead, LeadField } from '../lib/supabase';
 import { Plus, Trash2 } from 'lucide-react';
+import { getSelectOptions, isSelectField } from '../lib/leadFieldConfig';
 
 type OutreachViewProps = {
   method: string;
   onUpdate: () => void;
 };
 
-type OutreachRow = {
-  id: string;
-  lead_id: string;
-  method: string;
-  status: string;
-  notes: string | null;
-  lead: Lead;
-};
-
-const STATUSES = ['sent', 'replied', 'booked', 'no_response', 'not_interested'];
-
 export function OutreachView({ method, onUpdate }: OutreachViewProps) {
-  const [rows, setRows] = useState<OutreachRow[]>([]);
+  const [leads, setLeads] = useState<Lead[]>([]);
   const [fields, setFields] = useState<LeadField[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editingCell, setEditingCell] = useState<{ rowId: string; field: string } | null>(null);
+  const [editingCell, setEditingCell] = useState<{ leadId: string; fieldKey: string } | null>(null);
   const [editValue, setEditValue] = useState('');
 
   useEffect(() => {
@@ -32,35 +22,19 @@ export function OutreachView({ method, onUpdate }: OutreachViewProps) {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [eventsResult, fieldsResult] = await Promise.all([
+      const [leadsResult, fieldsResult] = await Promise.all([
         supabase
-          .from('outreach_events')
-          .select(`
-            id,
-            lead_id,
-            method,
-            status,
-            notes,
-            lead:leads(*)
-          `)
-          .eq('method', method)
+          .from('leads')
+          .select('*')
+          .eq('outreach_method', method)
           .order('created_at', { ascending: false }),
         supabase.from('lead_fields').select('*').order('created_at', { ascending: true }),
       ]);
 
-      if (eventsResult.error) throw eventsResult.error;
+      if (leadsResult.error) throw leadsResult.error;
       if (fieldsResult.error) throw fieldsResult.error;
 
-      const processedRows = (eventsResult.data || []).map((event: any) => ({
-        id: event.id,
-        lead_id: event.lead_id,
-        method: event.method,
-        status: event.status,
-        notes: event.notes,
-        lead: event.lead,
-      }));
-
-      setRows(processedRows);
+      setLeads(leadsResult.data || []);
       setFields(fieldsResult.data || []);
     } catch (error) {
       console.error('Error loading data:', error);
@@ -69,53 +43,32 @@ export function OutreachView({ method, onUpdate }: OutreachViewProps) {
     }
   };
 
-  const handleCellClick = (row: OutreachRow, field: string) => {
-    setEditingCell({ rowId: row.id, field });
-    if (field === 'status') {
-      setEditValue(row.status);
-    } else if (field === 'notes') {
-      setEditValue(row.notes || '');
-    } else {
-      setEditValue((row.lead as any)[field] || '');
-    }
+  const handleCellClick = (lead: Lead, fieldKey: string) => {
+    setEditingCell({ leadId: lead.id, fieldKey });
+    setEditValue((lead as any)[fieldKey] || '');
   };
 
-  const handleCellUpdate = async () => {
+  const handleCellUpdate = async (overrideValue?: string) => {
     if (!editingCell) return;
 
-    const row = rows.find(r => r.id === editingCell.rowId);
-    if (!row) return;
-
     try {
-      if (editingCell.field === 'status' || editingCell.field === 'notes') {
-        const { error } = await supabase
-          .from('outreach_events')
-          .update({ [editingCell.field]: editValue || null })
-          .eq('id', editingCell.rowId);
+      const nextValue = overrideValue ?? editValue;
+      const { error } = await supabase
+        .from('leads')
+        .update({ [editingCell.fieldKey]: nextValue || null })
+        .eq('id', editingCell.leadId);
 
-        if (error) throw error;
+      if (error) throw error;
 
-        setRows(rows.map(r =>
-          r.id === editingCell.rowId
-            ? { ...r, [editingCell.field]: editValue || null }
-            : r
-        ));
-      } else {
-        const { error } = await supabase
-          .from('leads')
-          .update({ [editingCell.field]: editValue || null })
-          .eq('id', row.lead_id);
-
-        if (error) throw error;
-
-        setRows(rows.map(r =>
-          r.id === editingCell.rowId
-            ? { ...r, lead: { ...r.lead, [editingCell.field]: editValue || null } }
-            : r
-        ));
-
-        onUpdate();
-      }
+      setLeads(leads
+        .map(lead =>
+          lead.id === editingCell.leadId
+            ? { ...lead, [editingCell.fieldKey]: nextValue || null }
+            : lead
+        )
+        .filter(lead => lead.outreach_method === method)
+      );
+      onUpdate();
     } catch (error) {
       console.error('Error updating cell:', error);
     } finally {
@@ -124,53 +77,34 @@ export function OutreachView({ method, onUpdate }: OutreachViewProps) {
     }
   };
 
-  const handleAddRow = async () => {
+  const handleAddLead = async () => {
     try {
-      const { data: newLead, error: leadError } = await supabase
+      const { data, error } = await supabase
         .from('leads')
-        .insert([{ name: 'New Lead' }])
+        .insert([{ name: 'New Lead', outreach_method: method }])
         .select()
         .single();
 
-      if (leadError) throw leadError;
-      if (!newLead) return;
-
-      const { data: newEvent, error: eventError } = await supabase
-        .from('outreach_events')
-        .insert([{ lead_id: newLead.id, method, status: 'sent' }])
-        .select()
-        .single();
-
-      if (eventError) throw eventError;
-
-      if (newEvent) {
-        const newRow: OutreachRow = {
-          id: newEvent.id,
-          lead_id: newEvent.lead_id,
-          method: newEvent.method,
-          status: newEvent.status,
-          notes: newEvent.notes,
-          lead: newLead,
-        };
-        setRows([newRow, ...rows]);
+      if (error) throw error;
+      if (data) {
+        setLeads([data, ...leads]);
         onUpdate();
       }
     } catch (error) {
-      console.error('Error adding row:', error);
+      console.error('Error adding lead:', error);
     }
   };
 
-  const handleDeleteRow = async (rowId: string, leadId: string) => {
-    if (!confirm('Delete this outreach event?')) return;
+  const handleDeleteLead = async (leadId: string) => {
+    if (!confirm('Are you sure you want to delete this lead?')) return;
 
     try {
-      const { error } = await supabase.from('outreach_events').delete().eq('id', rowId);
+      const { error } = await supabase.from('leads').delete().eq('id', leadId);
       if (error) throw error;
-
-      setRows(rows.filter(r => r.id !== rowId));
+      setLeads(leads.filter(lead => lead.id !== leadId));
       onUpdate();
     } catch (error) {
-      console.error('Error deleting row:', error);
+      console.error('Error deleting lead:', error);
     }
   };
 
@@ -183,11 +117,11 @@ export function OutreachView({ method, onUpdate }: OutreachViewProps) {
       <div className="mb-4 flex justify-between items-center">
         <h2 className="text-lg font-semibold text-gray-900 capitalize">{method} Outreach</h2>
         <button
-          onClick={handleAddRow}
+          onClick={handleAddLead}
           className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm font-medium"
         >
           <Plus className="w-4 h-4" />
-          Add Row
+          Add Lead
         </button>
       </div>
 
@@ -205,96 +139,69 @@ export function OutreachView({ method, onUpdate }: OutreachViewProps) {
                   </th>
                 ))}
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Notes
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Actions
                 </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {rows.length === 0 ? (
+              {leads.length === 0 ? (
                 <tr>
-                  <td colSpan={fields.length + 3} className="px-6 py-4 text-center text-gray-500">
-                    No {method} outreach yet. Click "Add Row" to get started.
+                  <td colSpan={fields.length + 1} className="px-6 py-4 text-center text-gray-500">
+                    No {method} outreach leads yet. Click "Add Lead" to get started.
                   </td>
                 </tr>
               ) : (
-                rows.map((row) => (
-                  <tr key={row.id} className="hover:bg-gray-50">
-                    {fields.map((field) => (
-                      <td
-                        key={field.id}
-                        className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 cursor-pointer hover:bg-blue-50"
-                        onClick={() => handleCellClick(row, field.field_key)}
-                      >
-                        {editingCell?.rowId === row.id && editingCell?.field === field.field_key ? (
-                          <input
-                            type="text"
-                            value={editValue}
-                            onChange={(e) => setEditValue(e.target.value)}
-                            onBlur={handleCellUpdate}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') handleCellUpdate();
-                              if (e.key === 'Escape') setEditingCell(null);
-                            }}
-                            autoFocus
-                            className="w-full px-2 py-1 border border-blue-500 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                        ) : (
-                          <span>{(row.lead as any)[field.field_key] || '-'}</span>
-                        )}
-                      </td>
-                    ))}
-                    <td
-                      className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 cursor-pointer hover:bg-blue-50"
-                      onClick={() => handleCellClick(row, 'status')}
-                    >
-                      {editingCell?.rowId === row.id && editingCell?.field === 'status' ? (
-                        <select
-                          value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
-                          onBlur={handleCellUpdate}
-                          autoFocus
-                          className="w-full px-2 py-1 border border-blue-500 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                leads.map((lead) => (
+                  <tr key={lead.id} className="hover:bg-gray-50">
+                    {fields.map((field) => {
+                      const isSelect = isSelectField(field.field_key, field.type);
+                      return (
+                        <td
+                          key={field.id}
+                          className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 cursor-pointer hover:bg-blue-50"
+                          onClick={() => handleCellClick(lead, field.field_key)}
                         >
-                          {STATUSES.map(status => (
-                            <option key={status} value={status}>
-                              {status.replace('_', ' ')}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <span className="capitalize">{row.status.replace('_', ' ')}</span>
-                      )}
-                    </td>
-                    <td
-                      className="px-6 py-4 text-sm text-gray-900 cursor-pointer hover:bg-blue-50"
-                      onClick={() => handleCellClick(row, 'notes')}
-                    >
-                      {editingCell?.rowId === row.id && editingCell?.field === 'notes' ? (
-                        <input
-                          type="text"
-                          value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
-                          onBlur={handleCellUpdate}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleCellUpdate();
-                            if (e.key === 'Escape') setEditingCell(null);
-                          }}
-                          autoFocus
-                          className="w-full px-2 py-1 border border-blue-500 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      ) : (
-                        <span>{row.notes || '-'}</span>
-                      )}
-                    </td>
+                          {editingCell?.leadId === lead.id && editingCell?.fieldKey === field.field_key ? (
+                            isSelect ? (
+                              <select
+                                value={editValue}
+                                onChange={(e) => {
+                                  setEditValue(e.target.value);
+                                  handleCellUpdate(e.target.value);
+                                }}
+                                autoFocus
+                                className="w-full px-2 py-1 border border-blue-500 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              >
+                                <option value="">-</option>
+                                {getSelectOptions(field.field_key).map(option => (
+                                  <option key={option} value={option}>
+                                    {option}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <input
+                                type="text"
+                                value={editValue}
+                                onChange={(e) => setEditValue(e.target.value)}
+                                onBlur={() => handleCellUpdate()}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleCellUpdate();
+                                  if (e.key === 'Escape') setEditingCell(null);
+                                }}
+                                autoFocus
+                                className="w-full px-2 py-1 border border-blue-500 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              />
+                            )
+                          ) : (
+                            <span>{(lead as any)[field.field_key] || '-'}</span>
+                          )}
+                        </td>
+                      );
+                    })}
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       <button
-                        onClick={() => handleDeleteRow(row.id, row.lead_id)}
+                        onClick={() => handleDeleteLead(lead.id)}
                         className="text-red-600 hover:text-red-800"
                       >
                         <Trash2 className="w-4 h-4" />

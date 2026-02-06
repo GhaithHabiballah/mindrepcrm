@@ -6,7 +6,7 @@ import { OutreachView } from './OutreachView';
 import { TempLeads } from './TempLeads';
 import { AddFieldModal } from './AddFieldModal';
 
-type Tab = 'master' | 'email' | 'sms' | 'instagram' | 'temp';
+type Tab = 'master' | 'email' | 'sms' | 'instagram' | 'linkedin' | 'phone' | 'temp';
 
 export function CRM() {
   const { signOut } = useAuth();
@@ -23,6 +23,8 @@ export function CRM() {
     { id: 'email', label: 'Email' },
     { id: 'sms', label: 'SMS' },
     { id: 'instagram', label: 'Instagram' },
+    { id: 'linkedin', label: 'LinkedIn' },
+    { id: 'phone', label: 'Phone' },
     { id: 'temp', label: 'Temp Import' },
   ];
 
@@ -33,14 +35,12 @@ export function CRM() {
           <div className="flex justify-between items-center h-16">
             <h1 className="text-xl font-bold text-gray-900">Outbound CRM</h1>
             <div className="flex items-center gap-4">
-              {activeTab === 'master' && (
-                <button
-                  onClick={() => setShowAddField(true)}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium"
-                >
-                  Add New Lead Info
-                </button>
-              )}
+              <button
+                onClick={() => setShowAddField(true)}
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium"
+              >
+                Add New Lead Info
+              </button>
               <button
                 onClick={() => signOut()}
                 className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:text-gray-900"
@@ -78,6 +78,8 @@ export function CRM() {
         {activeTab === 'email' && <OutreachView method="email" key={refreshKey} onUpdate={handleRefresh} />}
         {activeTab === 'sms' && <OutreachView method="sms" key={refreshKey} onUpdate={handleRefresh} />}
         {activeTab === 'instagram' && <OutreachView method="instagram" key={refreshKey} onUpdate={handleRefresh} />}
+        {activeTab === 'linkedin' && <OutreachView method="linkedin" key={refreshKey} onUpdate={handleRefresh} />}
+        {activeTab === 'phone' && <OutreachView method="phone" key={refreshKey} onUpdate={handleRefresh} />}
         {activeTab === 'temp' && <TempLeads onImport={handleRefresh} />}
       </main>
 

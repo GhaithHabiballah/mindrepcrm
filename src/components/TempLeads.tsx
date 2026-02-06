@@ -21,14 +21,13 @@ type TempLeadsProps = {
 
 export function TempLeads({ onImport }: TempLeadsProps) {
   const [inputText, setInputText] = useState('');
-  const [tempLeads, setTempLeads] = useState<TempLead[]>([]);
   const [duplicates, setDuplicates] = useState<DuplicateResult[]>([]);
   const [newLeads, setNewLeads] = useState<TempLead[]>([]);
   const [checked, setChecked] = useState(false);
   const [importing, setImporting] = useState(false);
 
-  const parseLeads = () => {
-    const lines = inputText.trim().split('\n');
+  const parseLeads = (raw: string) => {
+    const lines = raw.trim().split('\n');
     const parsed: TempLead[] = [];
 
     for (const line of lines) {
@@ -47,21 +46,16 @@ export function TempLeads({ onImport }: TempLeadsProps) {
       parsed.push(lead);
     }
 
-    setTempLeads(parsed);
-    setChecked(false);
-    setDuplicates([]);
-    setNewLeads([]);
+    return parsed;
   };
 
-  const createFingerprint = (lead: TempLead): string => {
-    if (lead.website) return `website:${lead.website.toLowerCase()}`;
-    if (lead.phone) return `phone:${lead.phone.replace(/\D/g, '')}`;
-    if (lead.email) return `email:${lead.email.toLowerCase()}`;
-    return `name:${lead.name.toLowerCase()}`;
-  };
+  const normalizeEmail = (value?: string) => value?.trim().toLowerCase() || '';
+  const normalizePhone = (value?: string) => value?.replace(/\D/g, '') || '';
+  const normalizeWebsite = (value?: string) => value?.trim().toLowerCase() || '';
 
   const checkDuplicates = async () => {
-    if (tempLeads.length === 0) {
+    const parsedLeads = parseLeads(inputText);
+    if (parsedLeads.length === 0) {
       alert('Please paste some leads first');
       return;
     }
@@ -69,27 +63,45 @@ export function TempLeads({ onImport }: TempLeadsProps) {
     try {
       const { data: existingLeads, error } = await supabase
         .from('leads')
-        .select('*');
+        .select('name,email,phone,website');
 
       if (error) throw error;
 
-      const existingFingerprints = new Map<string, any>();
+      const existingByEmail = new Map<string, any>();
+      const existingByPhone = new Map<string, any>();
+      const existingByWebsite = new Map<string, any>();
+
       (existingLeads || []).forEach(lead => {
-        const fingerprint = createFingerprint(lead);
-        existingFingerprints.set(fingerprint, lead);
+        const email = normalizeEmail(lead.email);
+        const phone = normalizePhone(lead.phone);
+        const website = normalizeWebsite(lead.website);
+        if (email) existingByEmail.set(email, lead);
+        if (phone) existingByPhone.set(phone, lead);
+        if (website) existingByWebsite.set(website, lead);
       });
 
       const dupes: DuplicateResult[] = [];
       const fresh: TempLead[] = [];
 
-      tempLeads.forEach(tempLead => {
-        const fingerprint = createFingerprint(tempLead);
-        const existing = existingFingerprints.get(fingerprint);
+      parsedLeads.forEach(tempLead => {
+        const email = normalizeEmail(tempLead.email);
+        const phone = normalizePhone(tempLead.phone);
+        const website = normalizeWebsite(tempLead.website);
+
+        const existing =
+          (email && existingByEmail.get(email)) ||
+          (phone && existingByPhone.get(phone)) ||
+          (website && existingByWebsite.get(website));
 
         if (existing) {
+          const reason = email && existingByEmail.get(email)
+            ? 'email'
+            : phone && existingByPhone.get(phone)
+            ? 'phone'
+            : 'website';
           dupes.push({
             original: tempLead,
-            reason: fingerprint.split(':')[0],
+            reason,
             matchedWith: existing.name,
           });
         } else {
@@ -119,6 +131,7 @@ export function TempLeads({ onImport }: TempLeadsProps) {
         email: lead.email || null,
         phone: lead.phone || null,
         website: lead.website || null,
+        outreach_method: null,
       }));
 
       const { error } = await supabase.from('leads').insert(leadsToInsert);
@@ -127,7 +140,6 @@ export function TempLeads({ onImport }: TempLeadsProps) {
 
       alert(`Successfully imported ${newLeads.length} leads!`);
       setInputText('');
-      setTempLeads([]);
       setDuplicates([]);
       setNewLeads([]);
       setChecked(false);
@@ -151,7 +163,12 @@ export function TempLeads({ onImport }: TempLeadsProps) {
           </label>
           <textarea
             value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
+            onChange={(e) => {
+              setInputText(e.target.value);
+              setChecked(false);
+              setDuplicates([]);
+              setNewLeads([]);
+            }}
             placeholder="John Doe, john@example.com, 555-1234, example.com&#10;Jane Smith, jane@example.com, 555-5678, janesmith.com"
             rows={10}
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
@@ -160,15 +177,8 @@ export function TempLeads({ onImport }: TempLeadsProps) {
 
         <div className="flex gap-4">
           <button
-            onClick={parseLeads}
-            className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 font-medium"
-          >
-            Parse Leads
-          </button>
-          <button
             onClick={checkDuplicates}
-            disabled={tempLeads.length === 0}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium"
           >
             Check Duplicates
           </button>
@@ -179,18 +189,10 @@ export function TempLeads({ onImport }: TempLeadsProps) {
               className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium flex items-center gap-2"
             >
               <Upload className="w-4 h-4" />
-              Import {newLeads.length} Leads
+              Add {newLeads.length} to Master
             </button>
           )}
         </div>
-
-        {tempLeads.length > 0 && !checked && (
-          <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
-            <p className="text-blue-900">
-              Parsed {tempLeads.length} leads. Click "Check Duplicates" to continue.
-            </p>
-          </div>
-        )}
 
         {checked && (
           <div className="space-y-4">
