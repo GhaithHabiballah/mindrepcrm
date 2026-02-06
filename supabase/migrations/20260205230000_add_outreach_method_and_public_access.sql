@@ -12,6 +12,18 @@
 ALTER TABLE leads
   ADD COLUMN IF NOT EXISTS outreach_method text;
 
+-- Create temp_leads table (persistent temp storage)
+CREATE TABLE IF NOT EXISTS temp_leads (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  email text,
+  phone text,
+  website text,
+  outreach_method text,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+
 -- Insert default field if missing
 INSERT INTO lead_fields (field_key, label, type)
 VALUES ('outreach_method', 'Outreach Method', 'select')
@@ -37,6 +49,7 @@ ON CONFLICT (key) DO NOTHING;
 ALTER TABLE leads DISABLE ROW LEVEL SECURITY;
 ALTER TABLE lead_fields DISABLE ROW LEVEL SECURITY;
 ALTER TABLE outreach_methods DISABLE ROW LEVEL SECURITY;
+ALTER TABLE temp_leads DISABLE ROW LEVEL SECURITY;
 
 -- Allow anon to call add_lead_column
 GRANT EXECUTE ON FUNCTION add_lead_column(text, text) TO anon;

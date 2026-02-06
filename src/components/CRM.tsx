@@ -175,7 +175,7 @@ export function CRM() {
             onUpdate={handleRefresh}
           />
         )}
-        {activeTab === 'temp' && <TempLeads onImport={handleRefresh} />}
+        {activeTab === 'temp' && <TempLeads onImport={handleRefresh} outreachOptions={methods} />}
       </main>
 
       {showAddField && (

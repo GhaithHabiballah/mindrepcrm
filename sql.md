@@ -11,6 +11,17 @@ CREATE TABLE IF NOT EXISTS leads (
   updated_at timestamptz DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS temp_leads (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  email text,
+  phone text,
+  website text,
+  outreach_method text,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS lead_fields (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   field_key text UNIQUE NOT NULL,
@@ -76,6 +87,9 @@ BEGIN
   END IF;
 
   EXECUTE format('ALTER TABLE leads ADD COLUMN IF NOT EXISTS %I %s', column_name, column_type);
+  EXECUTE format('ALTER TABLE temp_leads ADD COLUMN IF NOT EXISTS %I %s', column_name, column_type);
+
+  PERFORM pg_notify('pgrst', 'reload schema');
   RETURN true;
 EXCEPTION
   WHEN OTHERS THEN
@@ -89,4 +103,4 @@ GRANT EXECUTE ON FUNCTION add_lead_column(text, text) TO anon;
 ALTER TABLE leads DISABLE ROW LEVEL SECURITY;
 ALTER TABLE lead_fields DISABLE ROW LEVEL SECURITY;
 ALTER TABLE outreach_methods DISABLE ROW LEVEL SECURITY;
-
+ALTER TABLE temp_leads DISABLE ROW LEVEL SECURITY;

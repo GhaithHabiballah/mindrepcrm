@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { supabase, Lead, LeadField } from '../lib/supabase';
 import { Plus, Trash2 } from 'lucide-react';
 import { AddLeadModal } from './AddLeadModal';
+import { parseClipboard } from '../lib/pasteGrid';
 import { isSelectField, isDateField, formatDate } from '../lib/leadFieldConfig';
 
 type OutreachViewProps = {
@@ -93,6 +94,40 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
       setEditingCell(null);
       setEditValue('');
     }
+  };
+
+  const handlePaste = async (leadId: string, fieldKey: string, text: string) => {
+    const matrix = parseClipboard(text);
+    if (matrix.length === 0) return;
+
+    const startRowIndex = leads.findIndex((lead) => lead.id === leadId);
+    const fieldIndex = fields.findIndex((field) => field.field_key === fieldKey);
+    if (startRowIndex === -1 || fieldIndex === -1) return;
+
+    const nextLeads = [...leads];
+
+    for (let r = 0; r < matrix.length; r += 1) {
+      const rowIndex = startRowIndex + r;
+      if (rowIndex >= nextLeads.length) break;
+      const lead = nextLeads[rowIndex];
+      const updates: Record<string, string | null> = {};
+
+      for (let c = 0; c < matrix[r].length; c += 1) {
+        const colIndex = fieldIndex + c;
+        if (colIndex >= fields.length) break;
+        const targetField = fields[colIndex];
+        const value = matrix[r][c]?.trim() ?? '';
+        updates[targetField.field_key] = value.length > 0 ? value : null;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        nextLeads[rowIndex] = { ...lead, ...updates };
+        await supabase.from('leads').update(updates).eq('id', lead.id);
+      }
+    }
+
+    setLeads(nextLeads);
+    onUpdate();
   };
 
   const handleAddLead = () => {
@@ -205,6 +240,15 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
                                 type="text"
                                 value={editValue}
                                 onChange={(e) => setEditValue(e.target.value)}
+                                onPaste={(e) => {
+                                  const text = e.clipboardData.getData('text');
+                                  if (text.includes('\t') || text.includes('\n')) {
+                                    e.preventDefault();
+                                    handlePaste(lead.id, field.field_key, text);
+                                    setEditingCell(null);
+                                    setEditValue('');
+                                  }
+                                }}
                                 onBlur={() => handleCellUpdate()}
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') handleCellUpdate();

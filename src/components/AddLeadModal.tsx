@@ -12,6 +12,7 @@ type AddLeadModalProps = {
   fields: LeadField[];
   outreachOptions: OutreachOption[];
   defaultOutreachMethod?: string | null;
+  tableName?: 'leads' | 'temp_leads';
   onClose: () => void;
   onSuccess: () => void;
 };
@@ -20,6 +21,7 @@ export function AddLeadModal({
   fields,
   outreachOptions,
   defaultOutreachMethod,
+  tableName = 'leads',
   onClose,
   onSuccess,
 }: AddLeadModalProps) {
@@ -87,7 +89,7 @@ export function AddLeadModal({
 
       const insertLead = async () => {
         const { error: insertError } = await supabase
-          .from('leads')
+          .from(tableName)
           .insert([payload]);
         if (insertError) throw insertError;
       };
