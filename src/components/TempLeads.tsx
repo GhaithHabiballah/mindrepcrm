@@ -112,6 +112,7 @@ export function TempLeads({ onImport }: TempLeadsProps) {
       setDuplicates(dupes);
       setNewLeads(fresh);
       setChecked(true);
+      setInputText('');
     } catch (error) {
       console.error('Error checking duplicates:', error);
       alert('Error checking duplicates');

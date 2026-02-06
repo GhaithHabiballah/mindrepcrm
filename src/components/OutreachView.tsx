@@ -17,6 +17,20 @@ export function OutreachView({ method, onUpdate }: OutreachViewProps) {
 
   useEffect(() => {
     loadData();
+    const channel = supabase
+      .channel(`leads-changes-${method}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'leads' },
+        () => {
+          loadData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [method]);
 
   const loadData = async () => {

@@ -12,6 +12,20 @@ export function MasterLeads() {
 
   useEffect(() => {
     loadData();
+    const channel = supabase
+      .channel('leads-changes-master')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'leads' },
+        () => {
+          loadData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const loadData = async () => {
