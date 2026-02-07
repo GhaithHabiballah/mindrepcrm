@@ -16,6 +16,8 @@ export type Lead = {
   phone: string | null;
   website: string | null;
   outreach_method: string | null;
+  sort_order?: number | null;
+  pinned?: boolean | null;
   created_at: string;
   updated_at: string;
 };

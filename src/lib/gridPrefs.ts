@@ -5,6 +5,7 @@ export type GridPrefs = {
   widths: Record<string, number>;
   copyHeaders: boolean;
   pasteHeaderMap: boolean;
+  formats: Record<string, string>;
 };
 
 export type SavedView = {
@@ -16,6 +17,9 @@ export type SavedView = {
   widths: Record<string, number>;
   copyHeaders: boolean;
   pasteHeaderMap: boolean;
+  formats: Record<string, string>;
+  filters: Record<string, string>;
+  sorts: { fieldKey: string; dir: 'asc' | 'desc' }[];
 };
 
 const defaultPrefs: GridPrefs = {
@@ -25,6 +29,7 @@ const defaultPrefs: GridPrefs = {
   widths: {},
   copyHeaders: false,
   pasteHeaderMap: false,
+  formats: {},
 };
 
 export function loadGridPrefs(key: string): GridPrefs {
@@ -40,6 +45,7 @@ export function loadGridPrefs(key: string): GridPrefs {
       widths: parsed.widths ?? {},
       copyHeaders: parsed.copyHeaders ?? false,
       pasteHeaderMap: parsed.pasteHeaderMap ?? false,
+      formats: parsed.formats ?? {},
     };
   } catch {
     return defaultPrefs;

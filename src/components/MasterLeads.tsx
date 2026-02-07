@@ -5,6 +5,7 @@ import { Plus } from 'lucide-react';
 import { AddLeadModal } from './AddLeadModal';
 import { GridPrefs, SavedView, loadGridPrefs, saveGridPrefs, loadViews, saveViews, moveInArray } from '../lib/gridPrefs';
 import { GlideLeadGrid } from './GlideLeadGrid';
+import { CellNoteModal } from './CellNoteModal';
 
 type MasterLeadsProps = {
   outreachOptions: { key: string; label: string }[];
@@ -13,6 +14,11 @@ type MasterLeadsProps = {
 type UndoAction = {
   changes: { id: string; fieldKey: string; prev: string | null; next: string | null }[];
   insertedRows: Lead[];
+};
+
+type SortRule = {
+  fieldKey: string;
+  dir: 'asc' | 'desc';
 };
 
 export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
@@ -27,10 +33,19 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
   const [views, setViews] = useState<SavedView[]>(() => loadViews('master'));
   const [showColumns, setShowColumns] = useState(false);
   const [showViews, setShowViews] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
   const [activeView, setActiveView] = useState<string>('');
   const [showHint, setShowHint] = useState(false);
   const [undoStack, setUndoStack] = useState<UndoAction[]>([]);
   const [redoStack, setRedoStack] = useState<UndoAction[]>([]);
+  const [filters, setFilters] = useState<Record<string, string>>({});
+  const [sorts, setSorts] = useState<SortRule[]>([]);
+  const formatOptions = ['text', 'number', 'date', 'phone'];
+  const [noteTarget, setNoteTarget] = useState<{
+    leadId: string;
+    fieldKey: string;
+    fieldLabel: string;
+  } | null>(null);
 
   useEffect(() => {
     loadData();
@@ -50,11 +65,46 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const undoRaw = localStorage.getItem('undo:master');
+    const redoRaw = localStorage.getItem('redo:master');
+    if (undoRaw) {
+      try {
+        setUndoStack(JSON.parse(undoRaw));
+      } catch {
+        // ignore
+      }
+    }
+    if (redoRaw) {
+      try {
+        setRedoStack(JSON.parse(redoRaw));
+      } catch {
+        // ignore
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem('undo:master', JSON.stringify(undoStack.slice(-50)));
+  }, [undoStack]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem('redo:master', JSON.stringify(redoStack.slice(-50)));
+  }, [redoStack]);
+
   const loadData = async () => {
     setLoading(true);
     try {
       const [leadsResult, fieldsResult] = await Promise.all([
-        supabase.from('leads').select('*').order('created_at', { ascending: true }),
+        supabase
+          .from('leads')
+          .select('*')
+          .order('pinned', { ascending: false })
+          .order('sort_order', { ascending: true, nullsFirst: false })
+          .order('created_at', { ascending: true }),
         supabase.from('lead_fields').select('*').order('created_at', { ascending: true }),
       ]);
 
@@ -73,6 +123,8 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
   const applyMatrix = async (startRow: number, startCol: number, matrix: string[][]) => {
     if (matrix.length === 0) return;
     const baseColumns = new Set(['name', 'email', 'phone', 'website', 'outreach_method']);
+    let nextSortOrder =
+      Math.max(0, ...leads.map((lead) => (lead.sort_order == null ? 0 : lead.sort_order))) + 1;
     for (const field of orderedFields) {
       if (!baseColumns.has(field.field_key)) {
         await supabase.rpc('add_lead_column', { column_name: field.field_key, column_type: 'text' });
@@ -80,7 +132,7 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
     }
 
     const updates: Promise<unknown>[] = [];
-    const inserts: Record<string, string | null>[] = [];
+    const inserts: Record<string, string | number | null>[] = [];
     const changes: UndoAction['changes'] = [];
 
     for (let r = 0; r < matrix.length; r += 1) {
@@ -104,7 +156,12 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
           updates.push(Promise.resolve(supabase.from('leads').update(updatesRow).eq('id', targetRow.id)));
         }
       } else if (prefs.autoAddRows) {
-        const payload: Record<string, string | null> = { name: 'New Lead', outreach_method: null };
+        const payload: Record<string, string | null | number> = {
+          name: 'New Lead',
+          outreach_method: null,
+          sort_order: nextSortOrder,
+        };
+        nextSortOrder += 1;
         for (const [key, val] of Object.entries(updatesRow)) {
           payload[key] = val;
         }
@@ -204,16 +261,92 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
 
   const handleFillPattern = (event: FillPatternEventArgs) => {
     const { patternSource, fillDestination } = event;
+    const getRaw = (row: number, col: number) => {
+      const field = orderedFields[col];
+      const lead = filteredLeads[row];
+      return field && lead ? ((lead as Record<string, string | null>)[field.field_key] ?? '') : '';
+    };
+    const parseTrailing = (value: string) => {
+      const match = value.match(/^(.*?)(\d+)$/);
+      if (!match) return null;
+      return { prefix: match[1], num: Number(match[2]), width: match[2].length };
+    };
+
     const matrix: string[][] = [];
+    const isSingleCol = patternSource.width === 1;
+    const isSingleRow = patternSource.height === 1;
+
     for (let r = 0; r < fillDestination.height; r += 1) {
       const row: string[] = [];
       for (let c = 0; c < fillDestination.width; c += 1) {
-        const sourceRow = patternSource.y + (r % patternSource.height);
-        const sourceCol = patternSource.x + (c % patternSource.width);
-        const field = orderedFields[sourceCol];
-        const lead = filteredLeads[sourceRow];
-        const value =
-          field && lead ? ((lead as Record<string, string | null>)[field.field_key] ?? '') : '';
+        let value = '';
+        if (isSingleCol) {
+          const baseValues = Array.from({ length: patternSource.height }, (_, i) =>
+            getRaw(patternSource.y + i, patternSource.x)
+          );
+          const first = baseValues[0] ?? '';
+          const second = baseValues[1] ?? '';
+          const n1 = Number(first.replace(/,/g, ''));
+          const n2 = Number(second.replace(/,/g, ''));
+          const d1 = new Date(first);
+          const d2 = new Date(second);
+          const t1 = parseTrailing(first);
+          const t2 = parseTrailing(second);
+          const step =
+            Number.isFinite(n1) && Number.isFinite(n2) && first && second
+              ? n2 - n1
+              : t1 && t2
+              ? t2.num - t1.num
+              : !Number.isNaN(d1.getTime()) && !Number.isNaN(d2.getTime()) && first && second
+              ? (d2.getTime() - d1.getTime()) / 86400000
+              : 1;
+          if (Number.isFinite(n1) && first) {
+            value = (n1 + step * r).toString();
+          } else if (t1) {
+            const nextNum = t1.num + step * r;
+            value = `${t1.prefix}${String(Math.round(nextNum)).padStart(t1.width, '0')}`;
+          } else if (!Number.isNaN(d1.getTime()) && first) {
+            const next = new Date(d1.getTime() + step * r * 86400000);
+            value = next.toISOString().slice(0, 10);
+          } else {
+            value = baseValues[r % baseValues.length] ?? '';
+          }
+        } else if (isSingleRow) {
+          const baseValues = Array.from({ length: patternSource.width }, (_, i) =>
+            getRaw(patternSource.y, patternSource.x + i)
+          );
+          const first = baseValues[0] ?? '';
+          const second = baseValues[1] ?? '';
+          const n1 = Number(first.replace(/,/g, ''));
+          const n2 = Number(second.replace(/,/g, ''));
+          const d1 = new Date(first);
+          const d2 = new Date(second);
+          const t1 = parseTrailing(first);
+          const t2 = parseTrailing(second);
+          const step =
+            Number.isFinite(n1) && Number.isFinite(n2) && first && second
+              ? n2 - n1
+              : t1 && t2
+              ? t2.num - t1.num
+              : !Number.isNaN(d1.getTime()) && !Number.isNaN(d2.getTime()) && first && second
+              ? (d2.getTime() - d1.getTime()) / 86400000
+              : 1;
+          if (Number.isFinite(n1) && first) {
+            value = (n1 + step * c).toString();
+          } else if (t1) {
+            const nextNum = t1.num + step * c;
+            value = `${t1.prefix}${String(Math.round(nextNum)).padStart(t1.width, '0')}`;
+          } else if (!Number.isNaN(d1.getTime()) && first) {
+            const next = new Date(d1.getTime() + step * c * 86400000);
+            value = next.toISOString().slice(0, 10);
+          } else {
+            value = baseValues[c % baseValues.length] ?? '';
+          }
+        } else {
+          const sourceRow = patternSource.y + (r % patternSource.height);
+          const sourceCol = patternSource.x + (c % patternSource.width);
+          value = getRaw(sourceRow, sourceCol);
+        }
         row.push(value);
       }
       matrix.push(row);
@@ -237,7 +370,13 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
   };
 
   const handleAppendRow = async () => {
-    const payload: Record<string, string | null> = { name: 'New Lead', outreach_method: null };
+    const nextSortOrder =
+      Math.max(0, ...leads.map((lead) => (lead.sort_order == null ? 0 : lead.sort_order))) + 1;
+    const payload: Record<string, string | null | number> = {
+      name: 'New Lead',
+      outreach_method: null,
+      sort_order: nextSortOrder,
+    };
     await supabase.from('leads').insert(payload);
     loadData();
   };
@@ -283,6 +422,57 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
     await applyUndoAction(last, true);
   };
 
+  const handleHeaderClick = (colIndex: number, event: { shiftKey: boolean }) => {
+    const field = orderedFields[colIndex];
+    if (!field) return;
+    setSorts((prev) => {
+      const existingIndex = prev.findIndex((rule) => rule.fieldKey === field.field_key);
+      const nextDir = (dir: 'asc' | 'desc') => (dir === 'asc' ? 'desc' : 'asc');
+      if (event.shiftKey) {
+        if (existingIndex === -1) return [...prev, { fieldKey: field.field_key, dir: 'asc' }];
+        const updated = [...prev];
+        const current = updated[existingIndex];
+        if (current.dir === 'desc') {
+          updated.splice(existingIndex, 1);
+          return updated;
+        }
+        updated[existingIndex] = { ...current, dir: nextDir(current.dir) };
+        return updated;
+      }
+      if (existingIndex === -1) return [{ fieldKey: field.field_key, dir: 'asc' }];
+      const current = prev[existingIndex];
+      if (current.dir === 'desc') return [];
+      return [{ fieldKey: field.field_key, dir: nextDir(current.dir) }];
+    });
+  };
+
+  const handleRowMoved = async (startIndex: number, endIndex: number) => {
+    if (sorts.length > 0) {
+      if (!confirm('Row reordering clears active sorts. Continue?')) return;
+      setSorts([]);
+    }
+    const reordered = [...filteredLeads];
+    const [moved] = reordered.splice(startIndex, 1);
+    reordered.splice(endIndex, 0, moved);
+    const filteredIds = new Set(reordered.map((lead) => lead.id));
+    const remaining = leads.filter((lead) => !filteredIds.has(lead.id));
+    const combined = [...reordered, ...remaining];
+    await Promise.all(
+      combined.map((lead, idx) =>
+        supabase.from('leads').update({ sort_order: idx + 1 }).eq('id', lead.id)
+      )
+    );
+    loadData();
+  };
+
+  const handleCellContextMenu = (cell: Item) => {
+    const [col, row] = cell;
+    const field = orderedFields[col];
+    const lead = filteredLeads[row];
+    if (!field || !lead) return;
+    setNoteTarget({ leadId: lead.id, fieldKey: field.field_key, fieldLabel: field.label });
+  };
+
   const applyBulkMethod = async () => {
     if (!bulkMethod || selectedIds.size === 0) return;
     const ids = Array.from(selectedIds);
@@ -310,23 +500,65 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
     }
   };
 
+  const setPinnedForSelected = async (value: boolean) => {
+    if (selectedIds.size === 0) return;
+    const ids = Array.from(selectedIds);
+    const { error } = await supabase.from('leads').update({ pinned: value }).in('id', ids);
+    if (!error) {
+      setLeads((prev) =>
+        prev.map((lead) => (selectedIds.has(lead.id) ? { ...lead, pinned: value } : lead))
+      );
+      setSelectedIds(new Set());
+    }
+  };
+
   const filteredLeads = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return leads;
-    return leads.filter((lead) => {
-      const hay = [
-        lead.name,
-        lead.email,
-        lead.phone,
-        lead.website,
-        lead.outreach_method,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-      return hay.includes(q);
+    const filterEntries = Object.entries(filters).filter(([, val]) => val.trim().length > 0);
+    const indexed = leads.map((lead, idx) => ({ lead, idx }));
+    const filtered = indexed.filter(({ lead }) => {
+      if (q) {
+        const hay = [
+          lead.name,
+          lead.email,
+          lead.phone,
+          lead.website,
+          lead.outreach_method,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      for (const [fieldKey, raw] of filterEntries) {
+        const value = ((lead as Record<string, string | null>)[fieldKey] ?? '').toString().toLowerCase();
+        if (!value.includes(raw.trim().toLowerCase())) return false;
+      }
+      return true;
     });
-  }, [leads, searchQuery]);
+
+    const sorted = filtered.sort((a, b) => {
+      const ap = a.lead.pinned ? 1 : 0;
+      const bp = b.lead.pinned ? 1 : 0;
+      if (ap !== bp) return bp - ap;
+      if (sorts.length === 0) return a.idx - b.idx;
+      for (const rule of sorts) {
+        const av = ((a.lead as Record<string, string | null>)[rule.fieldKey] ?? '').toString();
+        const bv = ((b.lead as Record<string, string | null>)[rule.fieldKey] ?? '').toString();
+        const an = Number(av.replace(/,/g, ''));
+        const bn = Number(bv.replace(/,/g, ''));
+        let cmp = 0;
+        if (!Number.isNaN(an) && !Number.isNaN(bn) && av.trim() !== '' && bv.trim() !== '') {
+          cmp = an - bn;
+        } else {
+          cmp = av.localeCompare(bv);
+        }
+        if (cmp !== 0) return rule.dir === 'asc' ? cmp : -cmp;
+      }
+      return a.idx - b.idx;
+    });
+    return sorted.map((entry) => entry.lead);
+  }, [leads, searchQuery, filters, sorts]);
 
   const orderedFields = useMemo(() => {
     const order = prefs.order.length > 0 ? prefs.order : fields.map((f) => f.field_key);
@@ -343,6 +575,23 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
     const missing = fields.filter((f) => !order.includes(f.field_key));
     return [...ordered, ...missing];
   }, [fields, prefs.order]);
+
+  const columnTitleByKey = useMemo(() => {
+    const map: Record<string, string> = {};
+    const sortIndex = new Map(sorts.map((s, idx) => [s.fieldKey, idx + 1]));
+    fields.forEach((field) => {
+      const idx = sortIndex.get(field.field_key);
+      if (!idx) {
+        map[field.field_key] = field.label;
+        return;
+      }
+      const rule = sorts[idx - 1];
+      const arrow = rule.dir === 'asc' ? '▲' : '▼';
+      const suffix = sorts.length > 1 ? `${arrow}${idx}` : arrow;
+      map[field.field_key] = `${field.label} ${suffix}`;
+    });
+    return map;
+  }, [fields, sorts]);
 
   useEffect(() => {
     saveGridPrefs('master', prefs);
@@ -383,6 +632,9 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
       widths: prefs.widths,
       copyHeaders: prefs.copyHeaders,
       pasteHeaderMap: prefs.pasteHeaderMap,
+      formats: prefs.formats,
+      filters,
+      sorts,
     };
     setViews((prev) => [...prev.filter((v) => v.name !== name), newView]);
     setActiveView(name);
@@ -400,7 +652,10 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
       widths: view.widths ?? {},
       copyHeaders: view.copyHeaders ?? false,
       pasteHeaderMap: view.pasteHeaderMap ?? false,
+      formats: view.formats ?? {},
     }));
+    setFilters(view.filters ?? {});
+    setSorts(view.sorts ?? []);
     setActiveView(name);
   };
 
@@ -463,7 +718,7 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
               Columns
             </button>
             {showColumns && (
-              <div className="absolute right-0 mt-2 w-64 bg-gray-950 border border-gray-800 rounded-md p-3 z-10">
+              <div className="absolute right-0 mt-2 w-72 bg-gray-950 border border-gray-800 rounded-md p-3 z-10">
                 <div className="text-xs text-gray-400 mb-2">Show / reorder</div>
                 <div className="space-y-2 max-h-64 overflow-y-auto">
                   {allFieldsOrdered.map((field) => (
@@ -474,6 +729,22 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
                         onChange={() => toggleFieldVisibility(field.field_key)}
                       />
                       <span className="text-sm text-gray-200 flex-1">{field.label}</span>
+                      <select
+                        value={prefs.formats[field.field_key] ?? 'text'}
+                        onChange={(e) =>
+                          setPrefs((prev) => ({
+                            ...prev,
+                            formats: { ...prev.formats, [field.field_key]: e.target.value },
+                          }))
+                        }
+                        className="text-xs bg-gray-900 border border-gray-700 text-gray-200 rounded px-1 py-0.5"
+                      >
+                        {formatOptions.map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                      </select>
                       <button
                         onClick={() => moveField(field.field_key, 'up')}
                         className="text-gray-400 hover:text-white text-xs"
@@ -513,6 +784,40 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
                     onChange={(e) => setPrefs((prev) => ({ ...prev, pasteHeaderMap: e.target.checked }))}
                   />
                 </div>
+              </div>
+            )}
+          </div>
+          <div className="relative">
+            <button
+              onClick={() => setShowFilters((prev) => !prev)}
+              className="px-3 py-2 rounded-md bg-gray-800 text-gray-200 text-sm hover:bg-gray-700"
+            >
+              Filters
+            </button>
+            {showFilters && (
+              <div className="absolute right-0 mt-2 w-72 bg-gray-950 border border-gray-800 rounded-md p-3 z-10">
+                <div className="text-xs text-gray-400 mb-2">Column filters</div>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {orderedFields.map((field) => (
+                    <div key={field.field_key} className="flex items-center gap-2">
+                      <span className="text-xs text-gray-300 w-24 truncate">{field.label}</span>
+                      <input
+                        value={filters[field.field_key] ?? ''}
+                        onChange={(e) =>
+                          setFilters((prev) => ({ ...prev, [field.field_key]: e.target.value }))
+                        }
+                        placeholder="filter"
+                        className="flex-1 px-2 py-1 rounded-md bg-gray-900 border border-gray-700 text-white text-xs"
+                      />
+                    </div>
+                  ))}
+                </div>
+                <button
+                  onClick={() => setFilters({})}
+                  className="mt-2 text-xs text-gray-400 hover:text-white"
+                >
+                  Clear filters
+                </button>
               </div>
             )}
           </div>
@@ -589,6 +894,18 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
             Apply
           </button>
           <button
+            onClick={() => setPinnedForSelected(true)}
+            className="px-3 py-1.5 rounded-md bg-blue-900 text-white hover:bg-blue-800"
+          >
+            Pin
+          </button>
+          <button
+            onClick={() => setPinnedForSelected(false)}
+            className="px-3 py-1.5 rounded-md bg-blue-900 text-white hover:bg-blue-800"
+          >
+            Unpin
+          </button>
+          <button
             onClick={deleteSelected}
             className="px-3 py-1.5 rounded-md bg-red-900 text-white hover:bg-red-800"
           >
@@ -613,14 +930,29 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
           outreachOptions={outreachOptions}
           prefs={prefs}
           setPrefs={setPrefs}
+          formats={prefs.formats}
+          copyHeaders={prefs.copyHeaders}
+          columnTitleByKey={columnTitleByKey}
           onCellsEdited={handleCellsEdited}
           onPaste={handlePaste}
           onDelete={handleDelete}
           onFillPattern={handleFillPattern}
           onAppendRow={handleAppendRow}
+          onHeaderClick={handleHeaderClick}
+          onRowMoved={handleRowMoved}
+          onCellContextMenu={handleCellContextMenu}
           onSelectedIdsChange={setSelectedIds}
         />
       </div>
+
+      {noteTarget && (
+        <CellNoteModal
+          leadId={noteTarget.leadId}
+          fieldKey={noteTarget.fieldKey}
+          fieldLabel={noteTarget.fieldLabel}
+          onClose={() => setNoteTarget(null)}
+        />
+      )}
 
       {showAddLead && (
         <AddLeadModal
