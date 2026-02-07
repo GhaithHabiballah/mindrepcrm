@@ -792,12 +792,12 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
                 {orderedFields.map((field) => (
                   <th
                     key={field.id}
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider relative select-none"
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider relative select-none group"
                     style={{ width: prefs.widths[field.field_key] ?? 160 }}
                   >
                     {field.label}
                     <span
-                      className="absolute right-0 top-0 h-full w-2 cursor-col-resize"
+                      className="absolute right-0 top-0 h-full w-2 cursor-col-resize opacity-0 group-hover:opacity-100 transition bg-purple-400/60"
                       onMouseDown={(e) => {
                         e.preventDefault();
                         const startWidth = prefs.widths[field.field_key] ?? 160;
