@@ -168,7 +168,7 @@ export function CRM() {
         {activeTab === 'master' && (
           <MasterLeads key={refreshKey} outreachOptions={methods} />
         )}
-        {activeTab !== 'master' && activeTab !== 'temp' && (
+        {activeTab !== 'master' && activeTab !== 'temp' && activeTab !== 'docs' && (
           <OutreachView
             method={activeTab}
             label={methods.find((m) => m.key === activeTab)?.label || activeTab}
