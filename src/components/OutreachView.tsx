@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { EditListItem, GridCellKind, GridSelection, Item } from '@glideapps/glide-data-grid';
+import { EditListItem, FillPatternEventArgs, GridCellKind, GridSelection, Item } from '@glideapps/glide-data-grid';
 import { supabase, Lead, LeadField } from '../lib/supabase';
 import { Plus } from 'lucide-react';
 import { AddLeadModal } from './AddLeadModal';
@@ -199,6 +199,7 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
   };
 
   const handlePaste = (target: Item, values: readonly (readonly string[])[]) => {
+    if (!Array.isArray(target)) return false;
     const matrix = values.map((row) => row.map((cell) => cell ?? ''));
     if (matrix.length === 0) return false;
     const startCol = target[0];
@@ -209,6 +210,35 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
     }
     void applyMatrix(startRow, startCol, matrix as string[][]);
     return false;
+  };
+
+  const handleFillPattern = (event: FillPatternEventArgs) => {
+    const { patternSource, fillDestination } = event;
+    const matrix: string[][] = [];
+    for (let r = 0; r < fillDestination.height; r += 1) {
+      const row: string[] = [];
+      for (let c = 0; c < fillDestination.width; c += 1) {
+        const sourceRow = patternSource.y + (r % patternSource.height);
+        const sourceCol = patternSource.x + (c % patternSource.width);
+        const field = orderedFields[sourceCol];
+        const lead = filteredLeads[sourceRow];
+        const value =
+          field && lead ? ((lead as Record<string, string | null>)[field.field_key] ?? '') : '';
+        row.push(value);
+      }
+      matrix.push(row);
+    }
+    void applyMatrix(fillDestination.y, fillDestination.x, matrix);
+  };
+
+  const handleAppendRow = async () => {
+    const payload: Record<string, string | null> = {
+      name: 'New Lead',
+      outreach_method: method,
+    };
+    await supabase.from('leads').insert(payload);
+    loadData();
+    onUpdate();
   };
 
   const handleDelete = (selection: GridSelection) => {
@@ -605,6 +635,8 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
           onCellsEdited={handleCellsEdited}
           onPaste={handlePaste}
           onDelete={handleDelete}
+          onFillPattern={handleFillPattern}
+          onAppendRow={handleAppendRow}
           onSelectedIdsChange={setSelectedIds}
         />
       </div>

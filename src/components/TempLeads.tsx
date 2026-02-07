@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { EditListItem, GridCellKind, GridSelection, Item } from '@glideapps/glide-data-grid';
+import { EditListItem, FillPatternEventArgs, GridCellKind, GridSelection, Item } from '@glideapps/glide-data-grid';
 import { Plus } from 'lucide-react';
 import { supabase, Lead, LeadField } from '../lib/supabase';
 import { AddLeadModal } from './AddLeadModal';
@@ -40,10 +40,19 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
   const [showHint, setShowHint] = useState(false);
   const [undoStack, setUndoStack] = useState<UndoAction[]>([]);
   const [redoStack, setRedoStack] = useState<UndoAction[]>([]);
+  const [clearAfterImport, setClearAfterImport] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('temp:clearAfterImport') === 'true';
+  });
 
   useEffect(() => {
     loadData();
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem('temp:clearAfterImport', clearAfterImport ? 'true' : 'false');
+  }, [clearAfterImport]);
 
   const loadData = async () => {
     setLoading(true);
@@ -184,6 +193,7 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
   };
 
   const handlePaste = (target: Item, values: readonly (readonly string[])[]) => {
+    if (!Array.isArray(target)) return false;
     const matrix = values.map((row) => row.map((cell) => cell ?? ''));
     if (matrix.length === 0) return false;
     const startCol = target[0];
@@ -194,6 +204,31 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
     }
     void applyMatrix(startRow, startCol, matrix as string[][]);
     return false;
+  };
+
+  const handleFillPattern = (event: FillPatternEventArgs) => {
+    const { patternSource, fillDestination } = event;
+    const matrix: string[][] = [];
+    for (let r = 0; r < fillDestination.height; r += 1) {
+      const row: string[] = [];
+      for (let c = 0; c < fillDestination.width; c += 1) {
+        const sourceRow = patternSource.y + (r % patternSource.height);
+        const sourceCol = patternSource.x + (c % patternSource.width);
+        const field = orderedFields[sourceCol];
+        const lead = filteredLeads[sourceRow];
+        const value =
+          field && lead ? ((lead as Record<string, string | null>)[field.field_key] ?? '') : '';
+        row.push(value);
+      }
+      matrix.push(row);
+    }
+    void applyMatrix(fillDestination.y, fillDestination.x, matrix);
+  };
+
+  const handleAppendRow = async () => {
+    const payload: Record<string, string | null> = { name: 'New Lead', outreach_method: null };
+    await supabase.from('temp_leads').insert(payload);
+    loadData();
   };
 
   const handleDelete = (selection: GridSelection) => {
@@ -378,6 +413,13 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
     if (activeView === name) setActiveView('');
   };
 
+  const clearTempLeads = async () => {
+    if (!window.confirm('Clear all temp leads? This cannot be undone.')) return;
+    await supabase.from('temp_leads').delete().neq('id', '');
+    setLeads([]);
+    setDuplicates([]);
+  };
+
   const addRemainingToMaster = async () => {
     if (leads.length === 0) return;
     const baseColumns = new Set(['name', 'email', 'phone', 'website', 'outreach_method']);
@@ -387,28 +429,30 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
       }
     }
 
-      const rows = leads.map((lead) => {
-        const leadRecord = lead as Record<string, string | null>;
-        const row: Record<string, string | null> = {
-          name: lead.name || 'Unknown',
-          email: lead.email || null,
-          phone: lead.phone || null,
-          website: lead.website || null,
-          outreach_method: leadRecord.outreach_method || null,
-        };
-        fields.forEach((field) => {
-          const value = leadRecord[field.field_key];
-          if (!baseColumns.has(field.field_key)) {
-            row[field.field_key] = value ?? null;
-          }
-        });
-        return row;
+    const rows = leads.map((lead) => {
+      const leadRecord = lead as Record<string, string | null>;
+      const row: Record<string, string | null> = {
+        name: lead.name || 'Unknown',
+        email: lead.email || null,
+        phone: lead.phone || null,
+        website: lead.website || null,
+        outreach_method: leadRecord.outreach_method || null,
+      };
+      fields.forEach((field) => {
+        const value = leadRecord[field.field_key];
+        if (!baseColumns.has(field.field_key)) {
+          row[field.field_key] = value ?? null;
+        }
+      });
+      return row;
     });
 
     const { error } = await supabase.from('leads').insert(rows);
     if (!error) {
-      await supabase.from('temp_leads').delete().in('id', leads.map((l) => l.id));
-      setLeads([]);
+      if (clearAfterImport) {
+        await supabase.from('temp_leads').delete().in('id', leads.map((l) => l.id));
+        setLeads([]);
+      }
       setDuplicates([]);
       onImport();
     }
@@ -420,7 +464,12 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
 
   const normalizeEmail = (value?: string | null) => value?.trim().toLowerCase() || '';
   const normalizePhone = (value?: string | null) => value?.replace(/\D/g, '') || '';
-  const normalizeWebsite = (value?: string | null) => value?.trim().toLowerCase() || '';
+  const normalizeWebsite = (value?: string | null) =>
+    value
+      ?.trim()
+      .toLowerCase()
+      .replace(/^https?:\/\//, '')
+      .replace(/^www\./, '') || '';
 
   const checkDuplicates = async () => {
     setChecking(true);
@@ -586,6 +635,14 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
                     onChange={(e) => setPrefs((prev) => ({ ...prev, pasteHeaderMap: e.target.checked }))}
                   />
                 </div>
+                <div className="mt-2 flex items-center justify-between text-xs text-gray-400">
+                  <span>Clear temp after import</span>
+                  <input
+                    type="checkbox"
+                    checked={clearAfterImport}
+                    onChange={(e) => setClearAfterImport(e.target.checked)}
+                  />
+                </div>
               </div>
             )}
           </div>
@@ -645,6 +702,12 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
             Add Remaining to Master
           </button>
           <button
+            onClick={clearTempLeads}
+            className="flex items-center gap-2 px-4 py-2 bg-red-900 text-white rounded-md hover:bg-red-800 text-sm font-medium"
+          >
+            Clear Temp
+          </button>
+          <button
             onClick={handleAddLead}
             className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-500 text-sm font-medium"
           >
@@ -702,11 +765,11 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
           <div className="space-y-1 text-sm text-gray-300">
             {duplicates.slice(0, 10).map((dup) => (
               <div key={dup.original.id}>
-                {dup.original.name ||
+                {(dup.original.name ||
                   dup.original.email ||
                   dup.original.phone ||
                   dup.original.website ||
-                  'Unknown lead'}
+                  'Unknown lead') + ` — matched by ${dup.reason} with ${dup.matchedWith}`}
               </div>
             ))}
             {duplicates.length > 10 && (
@@ -729,6 +792,8 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
           onCellsEdited={handleCellsEdited}
           onPaste={handlePaste}
           onDelete={handleDelete}
+          onFillPattern={handleFillPattern}
+          onAppendRow={handleAppendRow}
           onSelectedIdsChange={setSelectedIds}
         />
       </div>

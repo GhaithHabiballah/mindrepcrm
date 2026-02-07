@@ -3,6 +3,7 @@ import {
   CompactSelection,
   DataEditor,
   EditListItem,
+  FillPatternEventArgs,
   GridCell,
   GridCellKind,
   GridColumn,
@@ -22,6 +23,8 @@ type GlideLeadGridProps = {
   onCellsEdited: (edits: readonly EditListItem[]) => Promise<void> | void;
   onPaste: (target: Item, values: readonly (readonly string[])[]) => boolean;
   onDelete: (selection: GridSelection) => boolean | GridSelection;
+  onFillPattern?: (event: FillPatternEventArgs) => void;
+  onAppendRow?: () => void;
   onSelectedIdsChange?: (ids: Set<string>) => void;
 };
 
@@ -34,6 +37,8 @@ export function GlideLeadGrid({
   onCellsEdited,
   onPaste,
   onDelete,
+  onFillPattern,
+  onAppendRow,
   onSelectedIdsChange,
 }: GlideLeadGridProps) {
   const { ref: gridRef, size } = useGridSize<HTMLDivElement>();
@@ -111,7 +116,7 @@ export function GlideLeadGrid({
     void onCellsEdited(edits);
   };
 
-  const handleColumnResizeEnd = (column: GridColumn, width: number) => {
+  const handleColumnResize = (column: GridColumn, width: number) => {
     setPrefs((prev) => ({
       ...prev,
       widths: { ...prev.widths, [column.id as string]: width },
@@ -133,8 +138,11 @@ export function GlideLeadGrid({
         height={size.height}
         rows={rows.length}
         columns={columns}
+        minColumnWidth={100}
+        maxColumnWidth={520}
         rowMarkers="checkbox"
         rowSelect="multi"
+        rowSelectionMode="multi"
         columnSelect="multi"
         rangeSelect="multi-rect"
         getCellContent={getCellContent}
@@ -142,9 +150,14 @@ export function GlideLeadGrid({
         onCellsEdited={handleCellsEdited}
         onPaste={onPaste}
         onDelete={onDelete}
+        fillHandle
+        onFillPattern={onFillPattern}
+        trailingRowOptions={{ hint: 'Add row', sticky: true }}
+        onRowAppended={onAppendRow}
         onGridSelectionChange={setGridSelection}
         gridSelection={gridSelection}
-        onColumnResizeEnd={handleColumnResizeEnd}
+        onColumnResizeEnd={handleColumnResize}
+        onColumnResize={handleColumnResize}
         onColumnMoved={handleColumnMoved}
         freezeColumns={1}
         smoothScrollX
