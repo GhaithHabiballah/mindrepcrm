@@ -10,6 +10,13 @@ type MasterLeadsProps = {
   outreachOptions: { key: string; label: string }[];
 };
 
+type GridRange = { start: { row: number; col: number }; end: { row: number; col: number } };
+
+type UndoAction = {
+  changes: { id: string; fieldKey: string; prev: string | null; next: string | null }[];
+  insertedRows: Lead[];
+};
+
 export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [fields, setFields] = useState<LeadField[]>([]);
@@ -28,11 +35,18 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
   const [activeView, setActiveView] = useState<string>('');
   const [showHint, setShowHint] = useState(false);
   const gridRef = useRef<HTMLDivElement | null>(null);
-  const [selection, setSelection] = useState<{ start: { row: number; col: number }; end: { row: number; col: number } } | null>(null);
+  const [selection, setSelection] = useState<GridRange | null>(null);
+  const [ranges, setRanges] = useState<GridRange[]>([]);
   const [isSelecting, setIsSelecting] = useState(false);
   const [isFilling, setIsFilling] = useState(false);
   const [fillValue, setFillValue] = useState<string | null>(null);
   const [resizing, setResizing] = useState<{ key: string; startX: number; startWidth: number } | null>(null);
+  const [selectionMode, setSelectionMode] = useState<'cell' | 'row' | 'col' | null>(null);
+  const [undoStack, setUndoStack] = useState<UndoAction[]>([]);
+  const [redoStack, setRedoStack] = useState<UndoAction[]>([]);
+  const [rowHeights, setRowHeights] = useState<Record<string, number>>({});
+  const [resizingRow, setResizingRow] = useState<{ id: string; startY: number; startHeight: number } | null>(null);
+  const [dragFieldKey, setDragFieldKey] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -96,6 +110,35 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
     };
   };
 
+  const getRangeForRow = (rowIndex: number) => ({
+    start: { row: rowIndex, col: 0 },
+    end: { row: rowIndex, col: Math.max(orderedFields.length - 1, 0) },
+  });
+
+  const getRangeForColumn = (colIndex: number) => ({
+    start: { row: 0, col: colIndex },
+    end: { row: Math.max(filteredLeads.length - 1, 0), col: colIndex },
+  });
+
+  const isCellInRange = (rowIndex: number, colIndex: number, range: GridRange) => {
+    const normalized = normalizeRange(range.start, range.end);
+    return rowIndex >= normalized.top &&
+      rowIndex <= normalized.bottom &&
+      colIndex >= normalized.left &&
+      colIndex <= normalized.right;
+  };
+
+  const isCellInRanges = (rowIndex: number, colIndex: number) =>
+    ranges.some((range) => isCellInRange(rowIndex, colIndex, range));
+
+  const getValidationError = (fieldKey: string, value: string | null) => {
+    if (!value) return null;
+    if (fieldKey === 'email' && !value.includes('@')) return 'Invalid email';
+    if (fieldKey === 'phone' && value.replace(/\D/g, '').length < 7) return 'Invalid phone';
+    if (fieldKey === 'website' && !value.includes('.')) return 'Invalid website';
+    return null;
+  };
+
   const applyMatrix = async (startRow: number, startCol: number, matrix: string[][]) => {
     if (matrix.length === 0) return;
     const baseColumns = new Set(['name', 'email', 'phone', 'website', 'outreach_method']);
@@ -107,6 +150,7 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
 
     const updates: Promise<unknown>[] = [];
     const inserts: Record<string, string | null>[] = [];
+    const changes: UndoAction['changes'] = [];
 
     for (let r = 0; r < matrix.length; r += 1) {
       const rowIndex = startRow + r;
@@ -122,6 +166,10 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
       const targetRow = filteredLeads[rowIndex];
       if (targetRow) {
         if (Object.keys(updatesRow).length > 0) {
+          for (const [fieldKey, nextVal] of Object.entries(updatesRow)) {
+            const prevVal = (targetRow as Record<string, string | null>)[fieldKey] ?? null;
+            changes.push({ id: targetRow.id, fieldKey, prev: prevVal, next: nextVal });
+          }
           updates.push(Promise.resolve(supabase.from('leads').update(updatesRow).eq('id', targetRow.id)));
         }
       } else if (prefs.autoAddRows) {
@@ -135,9 +183,40 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
 
     if (updates.length > 0) await Promise.all(updates);
     if (inserts.length > 0) {
-      await supabase.from('leads').insert(inserts);
+      const { data } = await supabase.from('leads').insert(inserts).select();
+      if (data && data.length > 0) {
+        setUndoStack((prev) => [...prev, { changes, insertedRows: data as Lead[] }]);
+        setRedoStack([]);
+      }
+    } else if (changes.length > 0) {
+      setUndoStack((prev) => [...prev, { changes, insertedRows: [] }]);
+      setRedoStack([]);
     }
     loadData();
+  };
+
+  const applyMatrixWithHeaderMap = async (startRow: number, matrix: string[][]) => {
+    if (matrix.length < 2) return applyMatrix(startRow, 0, matrix);
+    const headerRow = matrix[0].map((value) => value.trim().toLowerCase());
+    const fieldMap = new Map<string, number>();
+    orderedFields.forEach((field, index) => {
+      fieldMap.set(field.field_key.toLowerCase(), index);
+      fieldMap.set(field.label.toLowerCase(), index);
+    });
+    const columnMap = headerRow.map((header) => fieldMap.get(header) ?? -1);
+    const matchCount = columnMap.filter((idx) => idx >= 0).length;
+    if (matchCount < 2) return applyMatrix(startRow, 0, matrix);
+
+    const dataRows = matrix.slice(1);
+    const mapped = dataRows.map((row) => {
+      const out = Array.from({ length: orderedFields.length }, () => '');
+      row.forEach((cell, idx) => {
+        const mappedIndex = columnMap[idx];
+        if (mappedIndex >= 0) out[mappedIndex] = cell;
+      });
+      return out;
+    });
+    return applyMatrix(startRow, 0, mapped);
   };
 
   const selectCellByIndex = (rowIndex: number, colIndex: number) => {
@@ -145,6 +224,9 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
     const col = orderedFields[colIndex];
     if (!row || !col) return;
     setSelectedCell({ leadId: row.id, fieldKey: col.field_key });
+    const nextRange: GridRange = { start: { row: rowIndex, col: colIndex }, end: { row: rowIndex, col: colIndex } };
+    setSelection(nextRange);
+    setRanges([nextRange]);
   };
 
   const handleKeyDown = async (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -183,6 +265,13 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
       e.preventDefault();
       const range = normalizeRange(selection.start, selection.end);
       const rows: string[] = [];
+      if (prefs.copyHeaders) {
+        const headerRow: string[] = [];
+        for (let c = range.left; c <= range.right; c += 1) {
+          headerRow.push(orderedFields[c]?.label ?? '');
+        }
+        rows.push(headerRow.join('\t'));
+      }
       for (let r = range.top; r <= range.bottom; r += 1) {
         const cols: string[] = [];
         for (let c = range.left; c <= range.right; c += 1) {
@@ -199,11 +288,14 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
       await applyMatrix(range.top, range.left, matrix);
     } else if ((e.key === 'Backspace' || e.key === 'Delete') && selection) {
       e.preventDefault();
-      const range = normalizeRange(selection.start, selection.end);
-      const matrix = Array.from({ length: range.bottom - range.top + 1 }, () =>
-        Array.from({ length: range.right - range.left + 1 }, () => '')
-      );
-      await applyMatrix(range.top, range.left, matrix);
+      const targetRanges = ranges.length > 0 ? ranges : [selection];
+      for (const rangeItem of targetRanges) {
+        const range = normalizeRange(rangeItem.start, rangeItem.end);
+        const matrix = Array.from({ length: range.bottom - range.top + 1 }, () =>
+          Array.from({ length: range.right - range.left + 1 }, () => '')
+        );
+        await applyMatrix(range.top, range.left, matrix);
+      }
     }
   };
 
@@ -219,6 +311,14 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
 
       if (error) throw error;
 
+      const lead = leads.find((item) => item.id === editingCell.leadId);
+      const prevVal = lead ? (lead as Record<string, string | null>)[editingCell.fieldKey] ?? null : null;
+      setUndoStack((prev) => [
+        ...prev,
+        { changes: [{ id: editingCell.leadId, fieldKey: editingCell.fieldKey, prev: prevVal, next: nextValue || null }], insertedRows: [] },
+      ]);
+      setRedoStack([]);
+
       setLeads(leads.map(lead =>
         lead.id === editingCell.leadId
           ? { ...lead, [editingCell.fieldKey]: nextValue || null }
@@ -232,15 +332,104 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
     }
   };
 
-  const handleCellMouseDown = (rowIndex: number, colIndex: number, lead: Lead, fieldKey: string) => {
+  const handleCellMouseDown = (
+    e: React.MouseEvent,
+    rowIndex: number,
+    colIndex: number,
+    lead: Lead,
+    fieldKey: string
+  ) => {
     setSelectedCell({ leadId: lead.id, fieldKey });
-    setSelection({ start: { row: rowIndex, col: colIndex }, end: { row: rowIndex, col: colIndex } });
+    const baseRange: GridRange = { start: { row: rowIndex, col: colIndex }, end: { row: rowIndex, col: colIndex } };
+    if (e.shiftKey && selection) {
+      const nextRange: GridRange = { start: selection.start, end: { row: rowIndex, col: colIndex } };
+      setSelection(nextRange);
+      setRanges((prev) => (prev.length > 0 ? [...prev.slice(0, -1), nextRange] : [nextRange]));
+    } else if (e.metaKey || e.ctrlKey) {
+      setRanges((prev) => {
+        const hitIndex = prev.findIndex((range) => isCellInRange(rowIndex, colIndex, range));
+        if (hitIndex >= 0) {
+          return prev.filter((_, idx) => idx !== hitIndex);
+        }
+        return [...prev, baseRange];
+      });
+      setSelection(baseRange);
+    } else {
+      setSelection(baseRange);
+      setRanges([baseRange]);
+    }
+    setSelectionMode('cell');
     setIsSelecting(true);
   };
 
   const handleCellMouseEnter = (rowIndex: number, colIndex: number) => {
     if (isSelecting || isFilling) {
       setSelection((prev) => (prev ? { start: prev.start, end: { row: rowIndex, col: colIndex } } : prev));
+      setRanges((prev) => {
+        if (!prev.length) return prev;
+        const next = [...prev];
+        next[next.length - 1] = { start: prev[prev.length - 1].start, end: { row: rowIndex, col: colIndex } };
+        return next;
+      });
+    }
+  };
+
+  const handleRowHeaderMouseDown = (e: React.MouseEvent, rowIndex: number) => {
+    if ((e.target as HTMLElement).tagName.toLowerCase() === 'input') return;
+    const range = getRangeForRow(rowIndex);
+    if (e.shiftKey && selection) {
+      const nextRange: GridRange = { start: selection.start, end: { row: rowIndex, col: range.end.col } };
+      setSelection(nextRange);
+      setRanges((prev) => (prev.length > 0 ? [...prev.slice(0, -1), nextRange] : [nextRange]));
+    } else if (e.metaKey || e.ctrlKey) {
+      setRanges((prev) => [...prev, range]);
+      setSelection(range);
+    } else {
+      setRanges([range]);
+      setSelection(range);
+    }
+    setSelectionMode('row');
+    setIsSelecting(true);
+  };
+
+  const handleColumnHeaderMouseDown = (e: React.MouseEvent, colIndex: number) => {
+    if ((e.target as HTMLElement).dataset.resizeHandle === 'true') return;
+    const range = getRangeForColumn(colIndex);
+    if (e.shiftKey && selection) {
+      const nextRange: GridRange = { start: selection.start, end: { row: range.end.row, col: colIndex } };
+      setSelection(nextRange);
+      setRanges((prev) => (prev.length > 0 ? [...prev.slice(0, -1), nextRange] : [nextRange]));
+    } else if (e.metaKey || e.ctrlKey) {
+      setRanges((prev) => [...prev, range]);
+      setSelection(range);
+    } else {
+      setRanges([range]);
+      setSelection(range);
+    }
+    setSelectionMode('col');
+    setIsSelecting(true);
+  };
+
+  const handleHeaderMouseEnter = (rowIndex: number | null, colIndex: number | null) => {
+    if (!isSelecting || !selectionMode || !selection) return;
+    if (selectionMode === 'row' && rowIndex !== null) {
+      const nextRange: GridRange = { start: selection.start, end: { row: rowIndex, col: selection.end.col } };
+      setSelection(nextRange);
+      setRanges((prev) => {
+        if (!prev.length) return prev;
+        const next = [...prev];
+        next[next.length - 1] = nextRange;
+        return next;
+      });
+    } else if (selectionMode === 'col' && colIndex !== null) {
+      const nextRange: GridRange = { start: selection.start, end: { row: selection.end.row, col: colIndex } };
+      setSelection(nextRange);
+      setRanges((prev) => {
+        if (!prev.length) return prev;
+        const next = [...prev];
+        next[next.length - 1] = nextRange;
+        return next;
+      });
     }
   };
 
@@ -248,14 +437,34 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
     if (isFilling && selection) {
       const range = normalizeRange(selection.start, selection.end);
       const value = fillValue ?? '';
-      const matrix = Array.from({ length: range.bottom - range.top + 1 }, () =>
-        Array.from({ length: range.right - range.left + 1 }, () => value)
+      const matrix = Array.from({ length: range.bottom - range.top + 1 }, (_, rowIndex) =>
+        Array.from({ length: range.right - range.left + 1 }, () => {
+          if (range.right === range.left && range.bottom > range.top) {
+            const base = getCellValue(range.top, range.left);
+            const second = getCellValue(range.top + 1, range.left);
+            const baseNum = Number(base);
+            const secondNum = Number(second);
+            if (!Number.isNaN(baseNum) && !Number.isNaN(secondNum)) {
+              const step = secondNum - baseNum;
+              return String(baseNum + step * rowIndex);
+            }
+            const baseDate = new Date(base);
+            const secondDate = new Date(second);
+            if (!Number.isNaN(baseDate.getTime()) && !Number.isNaN(secondDate.getTime())) {
+              const stepDays = Math.round((secondDate.getTime() - baseDate.getTime()) / 86400000);
+              const nextDate = new Date(baseDate.getTime() + stepDays * rowIndex * 86400000);
+              return nextDate.toISOString().slice(0, 10);
+            }
+          }
+          return value;
+        })
       );
       await applyMatrix(range.top, range.left, matrix);
     }
     setIsSelecting(false);
     setIsFilling(false);
     setFillValue(null);
+    setSelectionMode(null);
   };
 
   const handlePaste = async (leadId: string, fieldKey: string, text: string) => {
@@ -265,6 +474,10 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
     const startRowIndex = filteredLeads.findIndex((lead) => lead.id === leadId);
     const fieldIndex = orderedFields.findIndex((field) => field.field_key === fieldKey);
     if (startRowIndex === -1 || fieldIndex === -1) return;
+    if (prefs.pasteHeaderMap) {
+      await applyMatrixWithHeaderMap(startRowIndex, matrix);
+      return;
+    }
     await applyMatrix(startRowIndex, fieldIndex, matrix);
   };
 
@@ -274,6 +487,10 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
 
     if (filteredLeads.length === 0 && orderedFields.length > 0) {
       if (!prefs.autoAddRows) return;
+      if (prefs.pasteHeaderMap) {
+        await applyMatrixWithHeaderMap(0, matrix);
+        return;
+      }
       await applyMatrix(0, 0, matrix);
       return;
     }
@@ -288,6 +505,47 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
       selectCellByIndex(0, 0);
     }
     gridRef.current?.focus();
+  };
+
+  const applyUndoAction = async (action: UndoAction, useNext: boolean) => {
+    if (action.insertedRows.length > 0) {
+      if (useNext) {
+        await supabase.from('leads').insert(action.insertedRows);
+      } else {
+        const ids = action.insertedRows.map((row) => row.id);
+        if (ids.length > 0) await supabase.from('leads').delete().in('id', ids);
+      }
+    }
+    if (action.changes.length > 0) {
+      const updatesById = new Map<string, Record<string, string | null>>();
+      action.changes.forEach((change) => {
+        const payload = updatesById.get(change.id) || {};
+        payload[change.fieldKey] = useNext ? change.next : change.prev;
+        updatesById.set(change.id, payload);
+      });
+      await Promise.all(
+        Array.from(updatesById.entries()).map(([id, payload]) =>
+          supabase.from('leads').update(payload).eq('id', id)
+        )
+      );
+    }
+    loadData();
+  };
+
+  const handleUndo = async () => {
+    const last = undoStack[undoStack.length - 1];
+    if (!last) return;
+    setUndoStack((prev) => prev.slice(0, -1));
+    setRedoStack((prev) => [...prev, last]);
+    await applyUndoAction(last, false);
+  };
+
+  const handleRedo = async () => {
+    const last = redoStack[redoStack.length - 1];
+    if (!last) return;
+    setRedoStack((prev) => prev.slice(0, -1));
+    setUndoStack((prev) => [...prev, last]);
+    await applyUndoAction(last, true);
   };
 
   const toggleSelectAll = () => {
@@ -360,6 +618,19 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
     return [...ordered, ...missing].filter((f) => !prefs.hidden.includes(f.field_key));
   }, [fields, prefs.order, prefs.hidden]);
 
+  const columnSuggestions = useMemo(() => {
+    const suggestions: Record<string, string[]> = {};
+    fields.forEach((field) => {
+      const values = new Set<string>();
+      leads.forEach((lead) => {
+        const value = (lead as Record<string, string | null>)[field.field_key];
+        if (value) values.add(String(value));
+      });
+      suggestions[field.field_key] = Array.from(values).slice(0, 20);
+    });
+    return suggestions;
+  }, [fields, leads]);
+
   const allFieldsOrdered = useMemo(() => {
     const order = prefs.order.length > 0 ? prefs.order : fields.map((f) => f.field_key);
     const orderMap = new Map(fields.map((f) => [f.field_key, f]));
@@ -395,6 +666,22 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
     };
   }, [resizing]);
 
+  useEffect(() => {
+    if (!resizingRow) return;
+    const handleMove = (e: MouseEvent) => {
+      const delta = e.clientY - resizingRow.startY;
+      const nextHeight = Math.max(32, resizingRow.startHeight + delta);
+      setRowHeights((prev) => ({ ...prev, [resizingRow.id]: nextHeight }));
+    };
+    const handleUp = () => setResizingRow(null);
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+  }, [resizingRow]);
+
   const toggleFieldVisibility = (fieldKey: string) => {
     setPrefs((prev) => {
       const hidden = new Set(prev.hidden);
@@ -413,6 +700,17 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
     });
   };
 
+  const handleColumnDrop = (targetKey: string) => {
+    if (!dragFieldKey || dragFieldKey === targetKey) return;
+    setPrefs((prev) => {
+      const order = prev.order.length > 0 ? [...prev.order] : fields.map((f) => f.field_key);
+      const from = order.indexOf(dragFieldKey);
+      const to = order.indexOf(targetKey);
+      return { ...prev, order: moveInArray(order, from, to) };
+    });
+    setDragFieldKey(null);
+  };
+
   const saveCurrentView = () => {
     const name = prompt('Name this view');
     if (!name) return;
@@ -423,6 +721,8 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
       hidden: prefs.hidden,
       autoAddRows: prefs.autoAddRows,
       widths: prefs.widths,
+      copyHeaders: prefs.copyHeaders,
+      pasteHeaderMap: prefs.pasteHeaderMap,
     };
     setViews((prev) => [...prev.filter((v) => v.name !== name), newView]);
     setActiveView(name);
@@ -438,6 +738,8 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
       hidden: view.hidden,
       autoAddRows: view.autoAddRows,
       widths: view.widths ?? {},
+      copyHeaders: view.copyHeaders ?? false,
+      pasteHeaderMap: view.pasteHeaderMap ?? false,
     }));
     setActiveView(name);
   };
@@ -479,6 +781,20 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
             placeholder="Search..."
             className="px-3 py-2 rounded-md bg-gray-900 border border-gray-700 text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
           />
+          <button
+            onClick={handleUndo}
+            disabled={undoStack.length === 0}
+            className="px-3 py-2 rounded-md bg-gray-800 text-gray-200 text-sm hover:bg-gray-700 disabled:opacity-50"
+          >
+            Undo
+          </button>
+          <button
+            onClick={handleRedo}
+            disabled={redoStack.length === 0}
+            className="px-3 py-2 rounded-md bg-gray-800 text-gray-200 text-sm hover:bg-gray-700 disabled:opacity-50"
+          >
+            Redo
+          </button>
           <button
             onClick={() => setShowHint((prev) => !prev)}
             className="px-3 py-2 rounded-md bg-gray-800 text-gray-200 text-sm hover:bg-gray-700"
@@ -531,6 +847,22 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
                     type="checkbox"
                     checked={prefs.autoAddRows}
                     onChange={(e) => setPrefs((prev) => ({ ...prev, autoAddRows: e.target.checked }))}
+                  />
+                </div>
+                <div className="mt-2 flex items-center justify-between text-xs text-gray-400">
+                  <span>Copy headers</span>
+                  <input
+                    type="checkbox"
+                    checked={prefs.copyHeaders}
+                    onChange={(e) => setPrefs((prev) => ({ ...prev, copyHeaders: e.target.checked }))}
+                  />
+                </div>
+                <div className="mt-2 flex items-center justify-between text-xs text-gray-400">
+                  <span>Paste header map</span>
+                  <input
+                    type="checkbox"
+                    checked={prefs.pasteHeaderMap}
+                    onChange={(e) => setPrefs((prev) => ({ ...prev, pasteHeaderMap: e.target.checked }))}
                   />
                 </div>
               </div>
@@ -627,6 +959,14 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
         Tip: Paste anywhere in the grid (Ctrl+V). Rows will auto‑add if enabled.
       </div>
 
+      {orderedFields.map((field) => (
+        <datalist key={field.field_key} id={`suggest-master-${field.field_key}`}>
+          {(columnSuggestions[field.field_key] || []).map((value) => (
+            <option key={value} value={value} />
+          ))}
+        </datalist>
+      ))}
+
       <div
         className="bg-gray-950 rounded-lg shadow overflow-hidden border border-gray-800"
         onPaste={(e) => {
@@ -643,10 +983,10 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
       >
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-800 table-fixed">
-            <thead className="bg-gray-900">
+            <thead className="bg-gray-900 sticky top-0 z-20">
               <tr>
                 <th
-                  className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider"
+                  className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider sticky left-0 z-30 bg-gray-900"
                   style={{ width: 40 }}
                 >
                   <input
@@ -658,16 +998,40 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
                 {orderedFields.map((field) => (
                   <th
                     key={field.id}
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider relative select-none group"
+                    className={`px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider relative select-none group ${
+                      orderedFields[0]?.field_key === field.field_key ? 'sticky left-[40px] z-20 bg-gray-900' : ''
+                    }`}
                     style={{ width: prefs.widths[field.field_key] ?? 160 }}
+                    draggable
+                    onDragStart={() => setDragFieldKey(field.field_key)}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={() => handleColumnDrop(field.field_key)}
+                    onMouseDown={(e) => handleColumnHeaderMouseDown(e, orderedFields.findIndex((f) => f.field_key === field.field_key))}
+                    onMouseEnter={() => handleHeaderMouseEnter(null, orderedFields.findIndex((f) => f.field_key === field.field_key))}
                   >
                     {field.label}
                     <span
+                      data-resize-handle="true"
                       className="absolute right-0 top-0 h-full w-2 cursor-col-resize opacity-0 group-hover:opacity-100 transition bg-purple-400/60"
                       onMouseDown={(e) => {
                         e.preventDefault();
                         const startWidth = prefs.widths[field.field_key] ?? 160;
                         setResizing({ key: field.field_key, startX: e.clientX, startWidth });
+                      }}
+                      onDoubleClick={(e) => {
+                        e.preventDefault();
+                        const maxLen = Math.max(
+                          field.label.length,
+                          ...filteredLeads.map((lead) => {
+                            const value = (lead as Record<string, string | null>)[field.field_key] ?? '';
+                            return String(value).length;
+                          })
+                        );
+                        const nextWidth = Math.min(420, Math.max(80, maxLen * 8 + 32));
+                        setPrefs((prev) => ({
+                          ...prev,
+                          widths: { ...prev.widths, [field.field_key]: nextWidth },
+                        }));
                       }}
                     />
                   </th>
@@ -689,12 +1053,31 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
                 </tr>
               ) : (
                 filteredLeads.map((lead, rowIndex) => (
-                  <tr key={lead.id} className="hover:bg-gray-900">
-                    <td className="px-4 py-4">
+                  <tr
+                    key={lead.id}
+                    className="hover:bg-gray-900"
+                    style={{ height: rowHeights[lead.id] ?? 48 }}
+                  >
+                    <td
+                      className="px-4 py-4 sticky left-0 z-10 bg-gray-950 relative group"
+                      onMouseDown={(e) => handleRowHeaderMouseDown(e, rowIndex)}
+                      onMouseEnter={() => handleHeaderMouseEnter(rowIndex, null)}
+                    >
                       <input
                         type="checkbox"
                         checked={selectedIds.has(lead.id)}
                         onChange={() => toggleSelect(lead.id)}
+                      />
+                      <span
+                        className="absolute bottom-0 left-0 w-full h-2 cursor-row-resize opacity-0 group-hover:opacity-100"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setResizingRow({
+                            id: lead.id,
+                            startY: e.clientY,
+                            startHeight: rowHeights[lead.id] ?? 48,
+                          });
+                        }}
                       />
                     </td>
                     {orderedFields.map((field, colIndex) => {
@@ -721,15 +1104,7 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
                         );
                       }
 
-                      const isSelected =
-                        selection &&
-                        (() => {
-                          const range = normalizeRange(selection.start, selection.end);
-                          return rowIndex >= range.top &&
-                            rowIndex <= range.bottom &&
-                            colIndex >= range.left &&
-                            colIndex <= range.right;
-                        })();
+                      const isSelected = isCellInRanges(rowIndex, colIndex);
 
                       return (
                         <td
@@ -738,10 +1113,10 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
                             selectedCell?.leadId === lead.id && selectedCell?.fieldKey === field.field_key
                               ? 'ring-1 ring-purple-500'
                               : ''
-                          }`}
+                          } ${colIndex === 0 ? 'sticky left-[40px] z-10 bg-gray-950' : ''}`}
                           style={isSelected ? { backgroundColor: 'rgba(124, 58, 237, 0.15)' } : undefined}
                           onClick={() => handleCellClick(lead, field.field_key)}
-                          onMouseDown={() => handleCellMouseDown(rowIndex, colIndex, lead, field.field_key)}
+                          onMouseDown={(e) => handleCellMouseDown(e, rowIndex, colIndex, lead, field.field_key)}
                           onMouseEnter={() => handleCellMouseEnter(rowIndex, colIndex)}
                         >
                           {editingCell?.leadId === lead.id && editingCell?.fieldKey === field.field_key ? (
@@ -782,14 +1157,26 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
                                   if (e.key === 'Escape') setEditingCell(null);
                                 }}
                                 autoFocus
+                                list={`suggest-master-${field.field_key}`}
                                 className="w-full px-2 py-1 border border-purple-500 rounded focus:outline-none focus:ring-2 focus:ring-purple-500 bg-gray-900 text-white"
                               />
                             )
                           ) : (
                             <span className="relative block">
-                              {field.field_key === 'outreach_method'
-                                ? methodLabel || '-'
-                                : leadRecord[field.field_key] || '-'}
+                              {(() => {
+                                const value = field.field_key === 'outreach_method'
+                                  ? methodLabel || '-'
+                                  : leadRecord[field.field_key] || '-';
+                                const error = getValidationError(field.field_key, leadRecord[field.field_key]);
+                                return (
+                                  <span
+                                    className={error ? 'text-red-300' : undefined}
+                                    title={error || undefined}
+                                  >
+                                    {value}
+                                  </span>
+                                );
+                              })()}
                               {selection &&
                                 (() => {
                                   const range = normalizeRange(selection.start, selection.end);
@@ -802,6 +1189,18 @@ export function MasterLeads({ outreachOptions }: MasterLeadsProps) {
                                         const value = getCellValue(range.top, range.left);
                                         setFillValue(value);
                                         setIsFilling(true);
+                                      }}
+                                      onDoubleClick={async (e) => {
+                                        e.stopPropagation();
+                                        if (range.left !== range.right) return;
+                                        const lastRow = filteredLeads.reduce((acc, lead, idx) => {
+                                          const val = (lead as Record<string, string | null>)[orderedFields[range.left]?.field_key];
+                                          return val ? idx : acc;
+                                        }, range.bottom);
+                                        if (lastRow <= range.bottom) return;
+                                        const value = getCellValue(range.top, range.left);
+                                        const matrix = Array.from({ length: lastRow - range.bottom }, () => [value]);
+                                        await applyMatrix(range.bottom + 1, range.left, matrix);
                                       }}
                                       className="absolute -bottom-1 -right-1 h-2 w-2 bg-purple-400 rounded-sm cursor-crosshair"
                                     />

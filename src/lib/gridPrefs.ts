@@ -3,6 +3,8 @@ export type GridPrefs = {
   hidden: string[];
   autoAddRows: boolean;
   widths: Record<string, number>;
+  copyHeaders: boolean;
+  pasteHeaderMap: boolean;
 };
 
 export type SavedView = {
@@ -12,6 +14,8 @@ export type SavedView = {
   hidden: string[];
   autoAddRows: boolean;
   widths: Record<string, number>;
+  copyHeaders: boolean;
+  pasteHeaderMap: boolean;
 };
 
 const defaultPrefs: GridPrefs = {
@@ -19,6 +23,8 @@ const defaultPrefs: GridPrefs = {
   hidden: [],
   autoAddRows: true,
   widths: {},
+  copyHeaders: false,
+  pasteHeaderMap: false,
 };
 
 export function loadGridPrefs(key: string): GridPrefs {
@@ -32,6 +38,8 @@ export function loadGridPrefs(key: string): GridPrefs {
       hidden: parsed.hidden ?? [],
       autoAddRows: parsed.autoAddRows ?? true,
       widths: parsed.widths ?? {},
+      copyHeaders: parsed.copyHeaders ?? false,
+      pasteHeaderMap: parsed.pasteHeaderMap ?? false,
     };
   } catch {
     return defaultPrefs;
