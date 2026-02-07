@@ -37,6 +37,10 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
   const [activeView, setActiveView] = useState<string>('');
   const [showHint, setShowHint] = useState(false);
   const gridRef = useRef<HTMLDivElement | null>(null);
+  const [selection, setSelection] = useState<{ start: { row: number; col: number }; end: { row: number; col: number } } | null>(null);
+  const [isSelecting, setIsSelecting] = useState(false);
+  const [isFilling, setIsFilling] = useState(false);
+  const [fillValue, setFillValue] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -69,6 +73,67 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
     setEditValue(value || '');
   };
 
+  const getCellValue = (rowIndex: number, colIndex: number) => {
+    const row = filteredLeads[rowIndex];
+    const col = orderedFields[colIndex];
+    if (!row || !col) return '';
+    const value = (row as Record<string, string | null>)[col.field_key];
+    return value || '';
+  };
+
+  const normalizeRange = (start: { row: number; col: number }, end: { row: number; col: number }) => {
+    return {
+      top: Math.min(start.row, end.row),
+      bottom: Math.max(start.row, end.row),
+      left: Math.min(start.col, end.col),
+      right: Math.max(start.col, end.col),
+    };
+  };
+
+  const applyMatrix = async (startRow: number, startCol: number, matrix: string[][]) => {
+    if (matrix.length === 0) return;
+    const baseColumns = new Set(['name', 'email', 'phone', 'website', 'outreach_method']);
+    for (const field of orderedFields) {
+      if (!baseColumns.has(field.field_key)) {
+        await supabase.rpc('add_lead_column', { column_name: field.field_key, column_type: 'text' });
+      }
+    }
+
+    const updates: Promise<unknown>[] = [];
+    const inserts: Record<string, string | null>[] = [];
+
+    for (let r = 0; r < matrix.length; r += 1) {
+      const rowIndex = startRow + r;
+      const updatesRow: Record<string, string | null> = {};
+      for (let c = 0; c < matrix[r].length; c += 1) {
+        const colIndex = startCol + c;
+        if (colIndex >= orderedFields.length) break;
+        const targetField = orderedFields[colIndex];
+        const value = matrix[r][c]?.trim() ?? '';
+        updatesRow[targetField.field_key] = value.length > 0 ? value : null;
+      }
+
+      const targetRow = filteredLeads[rowIndex];
+      if (targetRow) {
+        if (Object.keys(updatesRow).length > 0) {
+          updates.push(Promise.resolve(supabase.from('temp_leads').update(updatesRow).eq('id', targetRow.id)));
+        }
+      } else if (prefs.autoAddRows) {
+        const payload: Record<string, string | null> = { name: 'New Lead', outreach_method: null };
+        for (const [key, val] of Object.entries(updatesRow)) {
+          payload[key] = val;
+        }
+        inserts.push(payload);
+      }
+    }
+
+    if (updates.length > 0) await Promise.all(updates);
+    if (inserts.length > 0) {
+      await supabase.from('temp_leads').insert(inserts);
+    }
+    loadData();
+  };
+
   const selectCellByIndex = (rowIndex: number, colIndex: number) => {
     const row = filteredLeads[rowIndex];
     const col = orderedFields[colIndex];
@@ -76,7 +141,7 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
     setSelectedCell({ leadId: row.id, fieldKey: col.field_key });
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+  const handleKeyDown = async (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (editingCell) return;
     if (!selectedCell) {
       if (filteredLeads.length > 0 && orderedFields.length > 0) {
@@ -108,6 +173,31 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
       setEditingCell({ leadId: lead.id, fieldKey });
       const value = (lead as Record<string, string | null>)[fieldKey];
       setEditValue(value || '');
+    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && selection) {
+      e.preventDefault();
+      const range = normalizeRange(selection.start, selection.end);
+      const rows: string[] = [];
+      for (let r = range.top; r <= range.bottom; r += 1) {
+        const cols: string[] = [];
+        for (let c = range.left; c <= range.right; c += 1) {
+          cols.push(getCellValue(r, c));
+        }
+        rows.push(cols.join('\t'));
+      }
+      await navigator.clipboard.writeText(rows.join('\n'));
+    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v' && selection) {
+      e.preventDefault();
+      const text = await navigator.clipboard.readText();
+      const matrix = parseClipboard(text);
+      const range = normalizeRange(selection.start, selection.end);
+      await applyMatrix(range.top, range.left, matrix);
+    } else if ((e.key === 'Backspace' || e.key === 'Delete') && selection) {
+      e.preventDefault();
+      const range = normalizeRange(selection.start, selection.end);
+      const matrix = Array.from({ length: range.bottom - range.top + 1 }, () =>
+        Array.from({ length: range.right - range.left + 1 }, () => '')
+      );
+      await applyMatrix(range.top, range.left, matrix);
     }
   };
 
@@ -116,6 +206,32 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
       selectCellByIndex(0, 0);
     }
     gridRef.current?.focus();
+  };
+
+  const handleCellMouseDown = (rowIndex: number, colIndex: number, lead: Lead, fieldKey: string) => {
+    setSelectedCell({ leadId: lead.id, fieldKey });
+    setSelection({ start: { row: rowIndex, col: colIndex }, end: { row: rowIndex, col: colIndex } });
+    setIsSelecting(true);
+  };
+
+  const handleCellMouseEnter = (rowIndex: number, colIndex: number) => {
+    if (isSelecting || isFilling) {
+      setSelection((prev) => (prev ? { start: prev.start, end: { row: rowIndex, col: colIndex } } : prev));
+    }
+  };
+
+  const handleGridMouseUp = async () => {
+    if (isFilling && selection) {
+      const range = normalizeRange(selection.start, selection.end);
+      const value = fillValue ?? '';
+      const matrix = Array.from({ length: range.bottom - range.top + 1 }, () =>
+        Array.from({ length: range.right - range.left + 1 }, () => value)
+      );
+      await applyMatrix(range.top, range.left, matrix);
+    }
+    setIsSelecting(false);
+    setIsFilling(false);
+    setFillValue(null);
   };
 
   const handleCellUpdate = async (overrideValue?: string) => {
@@ -147,83 +263,20 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
     const matrix = parseClipboard(text);
     if (matrix.length === 0) return;
 
-    const startRowIndex = leads.findIndex((lead) => lead.id === leadId);
+    const startRowIndex = filteredLeads.findIndex((lead) => lead.id === leadId);
     const fieldIndex = orderedFields.findIndex((field) => field.field_key === fieldKey);
     if (startRowIndex === -1 || fieldIndex === -1) return;
 
-    const nextLeads = [...leads];
-    const baseColumns = new Set(['name', 'email', 'phone', 'website', 'outreach_method']);
-    for (const field of fields) {
-      if (!baseColumns.has(field.field_key)) {
-        await supabase.rpc('add_lead_column', { column_name: field.field_key, column_type: 'text' });
-      }
-    }
-
-    const updates: Promise<unknown>[] = [];
-    const inserts: Record<string, string | null>[] = [];
-
-    for (let r = 0; r < matrix.length; r += 1) {
-      const rowIndex = startRowIndex + r;
-      const updatesRow: Record<string, string | null> = {};
-
-      for (let c = 0; c < matrix[r].length; c += 1) {
-        const colIndex = fieldIndex + c;
-        if (colIndex >= orderedFields.length) break;
-        const targetField = orderedFields[colIndex];
-        const value = matrix[r][c]?.trim() ?? '';
-        updatesRow[targetField.field_key] = value.length > 0 ? value : null;
-      }
-
-      if (rowIndex < nextLeads.length) {
-        const lead = nextLeads[rowIndex];
-        if (Object.keys(updatesRow).length > 0) {
-          nextLeads[rowIndex] = { ...lead, ...updatesRow };
-          updates.push(Promise.resolve(supabase.from('temp_leads').update(updatesRow).eq('id', lead.id)));
-        }
-      } else if (prefs.autoAddRows) {
-        const payload: Record<string, string | null> = { name: 'New Lead', outreach_method: null };
-        for (const [key, val] of Object.entries(updatesRow)) {
-          payload[key] = val;
-        }
-        inserts.push(payload);
-      }
-    }
-
-    if (updates.length > 0) {
-      await Promise.all(updates);
-    }
-    if (inserts.length > 0) {
-      const { data } = await supabase.from('temp_leads').insert(inserts).select();
-      if (data) nextLeads.push(...data);
-    }
-
-    setLeads(nextLeads);
+    await applyMatrix(startRowIndex, fieldIndex, matrix);
   };
 
   const handleGridPaste = async (text: string) => {
     const matrix = parseClipboard(text);
     if (matrix.length === 0) return;
 
-    if (leads.length === 0 && fields.length > 0) {
+    if (filteredLeads.length === 0 && orderedFields.length > 0) {
       if (!prefs.autoAddRows) return;
-      const baseColumns = new Set(['name', 'email', 'phone', 'website', 'outreach_method']);
-      for (const field of fields) {
-        if (!baseColumns.has(field.field_key)) {
-          await supabase.rpc('add_lead_column', { column_name: field.field_key, column_type: 'text' });
-        }
-      }
-      const inserts = matrix.map((row) => {
-        const payload: Record<string, string | null> = { name: 'New Lead', outreach_method: null };
-        for (let c = 0; c < row.length; c += 1) {
-          const field = orderedFields[c];
-          if (!field) break;
-          const value = row[c]?.trim() ?? '';
-          payload[field.field_key] = value.length > 0 ? value : null;
-        }
-        return payload;
-      });
-      const { data } = await supabase.from('temp_leads').insert(inserts).select();
-      if (data) setLeads(data);
+      await applyMatrix(0, 0, matrix);
       return;
     }
 
@@ -698,6 +751,7 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
         ref={gridRef}
         tabIndex={0}
         onKeyDown={handleKeyDown}
+        onMouseUp={handleGridMouseUp}
       >
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-800">
@@ -731,7 +785,7 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
                   </td>
                 </tr>
               ) : (
-                filteredLeads.map((lead) => (
+                filteredLeads.map((lead, rowIndex) => (
                   <tr key={lead.id} className="hover:bg-gray-900">
                     <td className="px-4 py-4">
                       <input
@@ -740,7 +794,7 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
                         onChange={() => toggleSelect(lead.id)}
                       />
                     </td>
-                    {orderedFields.map((field) => {
+                    {orderedFields.map((field, colIndex) => {
                       const isSelect = isSelectField(field.field_key, field.type);
                       const selectOptions = field.field_key === 'outreach_method'
                         ? outreachOptions
@@ -750,6 +804,16 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
                         field.field_key === 'outreach_method'
                           ? outreachOptions.find((option) => option.key === leadRecord[field.field_key])?.label
                           : null;
+
+                      const isSelected =
+                        selection &&
+                        (() => {
+                          const range = normalizeRange(selection.start, selection.end);
+                          return rowIndex >= range.top &&
+                            rowIndex <= range.bottom &&
+                            colIndex >= range.left &&
+                            colIndex <= range.right;
+                        })();
                       return (
                         <td
                           key={field.id}
@@ -758,7 +822,10 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
                               ? 'ring-1 ring-purple-500'
                               : ''
                           }`}
+                          style={isSelected ? { backgroundColor: 'rgba(124, 58, 237, 0.15)' } : undefined}
                           onClick={() => handleCellClick(lead, field.field_key)}
+                          onMouseDown={() => handleCellMouseDown(rowIndex, colIndex, lead, field.field_key)}
+                          onMouseEnter={() => handleCellMouseEnter(rowIndex, colIndex)}
                         >
                           {editingCell?.leadId === lead.id && editingCell?.fieldKey === field.field_key ? (
                             isSelect ? (
@@ -802,10 +869,27 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
                               />
                             )
                           ) : (
-                            <span>
+                            <span className="relative block">
                               {field.field_key === 'outreach_method'
                                 ? methodLabel || '-'
                                 : leadRecord[field.field_key] || '-'}
+                              {selection &&
+                                (() => {
+                                  const range = normalizeRange(selection.start, selection.end);
+                                  const isBottomRight =
+                                    rowIndex === range.bottom && colIndex === range.right;
+                                  return isBottomRight ? (
+                                    <span
+                                      onMouseDown={(e) => {
+                                        e.stopPropagation();
+                                        const value = getCellValue(range.top, range.left);
+                                        setFillValue(value);
+                                        setIsFilling(true);
+                                      }}
+                                      className="absolute -bottom-1 -right-1 h-2 w-2 bg-purple-400 rounded-sm cursor-crosshair"
+                                    />
+                                  ) : null;
+                                })()}
                             </span>
                           )}
                         </td>
