@@ -35,6 +35,7 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
   const [isSelecting, setIsSelecting] = useState(false);
   const [isFilling, setIsFilling] = useState(false);
   const [fillValue, setFillValue] = useState<string | null>(null);
+  const [resizing, setResizing] = useState<{ key: string; startX: number; startWidth: number } | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -391,6 +392,25 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
     saveViews(`outreach:${method}`, views);
   }, [views, method]);
 
+  useEffect(() => {
+    if (!resizing) return;
+    const handleMove = (e: MouseEvent) => {
+      const delta = e.clientX - resizing.startX;
+      const nextWidth = Math.max(80, resizing.startWidth + delta);
+      setPrefs((prev) => ({
+        ...prev,
+        widths: { ...prev.widths, [resizing.key]: nextWidth },
+      }));
+    };
+    const handleUp = () => setResizing(null);
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+  }, [resizing]);
+
   const toggleFieldVisibility = (fieldKey: string) => {
     setPrefs((prev) => {
       const hidden = new Set(prev.hidden);
@@ -418,6 +438,7 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
       order: prefs.order,
       hidden: prefs.hidden,
       autoAddRows: prefs.autoAddRows,
+      widths: prefs.widths,
     };
     setViews((prev) => [...prev.filter((v) => v.name !== name), newView]);
     setActiveView(name);
@@ -432,6 +453,7 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
       order: view.order,
       hidden: view.hidden,
       autoAddRows: view.autoAddRows,
+      widths: view.widths ?? {},
     }));
     setActiveView(name);
   };
@@ -637,10 +659,13 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
         onMouseUp={handleGridMouseUp}
       >
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-800">
+          <table className="min-w-full divide-y divide-gray-800 table-fixed">
             <thead className="bg-gray-900">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                <th
+                  className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider"
+                  style={{ width: 40 }}
+                >
                   <input
                     type="checkbox"
                     checked={selectedIds.size === leads.length && leads.length > 0}
@@ -650,12 +675,24 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
                 {orderedFields.map((field) => (
                   <th
                     key={field.id}
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider"
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider relative select-none"
+                    style={{ width: prefs.widths[field.field_key] ?? 160 }}
                   >
                     {field.label}
+                    <span
+                      className="absolute right-0 top-0 h-full w-2 cursor-col-resize"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        const startWidth = prefs.widths[field.field_key] ?? 160;
+                        setResizing({ key: field.field_key, startX: e.clientX, startWidth });
+                      }}
+                    />
                   </th>
                 ))}
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                <th
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider"
+                  style={{ width: 90 }}
+                >
                   Actions
                 </th>
               </tr>

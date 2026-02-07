@@ -2,6 +2,7 @@ export type GridPrefs = {
   order: string[];
   hidden: string[];
   autoAddRows: boolean;
+  widths: Record<string, number>;
 };
 
 export type SavedView = {
@@ -10,12 +11,14 @@ export type SavedView = {
   order: string[];
   hidden: string[];
   autoAddRows: boolean;
+  widths: Record<string, number>;
 };
 
 const defaultPrefs: GridPrefs = {
   order: [],
   hidden: [],
   autoAddRows: true,
+  widths: {},
 };
 
 export function loadGridPrefs(key: string): GridPrefs {
@@ -28,6 +31,7 @@ export function loadGridPrefs(key: string): GridPrefs {
       order: parsed.order ?? [],
       hidden: parsed.hidden ?? [],
       autoAddRows: parsed.autoAddRows ?? true,
+      widths: parsed.widths ?? {},
     };
   } catch {
     return defaultPrefs;
