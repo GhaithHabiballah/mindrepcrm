@@ -364,6 +364,7 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
     lead: Lead,
     fieldKey: string
   ) => {
+    e.preventDefault();
     setSelectedCell({ leadId: lead.id, fieldKey });
     const baseRange: GridRange = { start: { row: rowIndex, col: colIndex }, end: { row: rowIndex, col: colIndex } };
     if (e.shiftKey && selection) {
@@ -401,6 +402,7 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
 
   const handleRowHeaderMouseDown = (e: React.MouseEvent, rowIndex: number) => {
     if ((e.target as HTMLElement).tagName.toLowerCase() === 'input') return;
+    e.preventDefault();
     const range = getRangeForRow(rowIndex);
     if (e.shiftKey && selection) {
       const nextRange: GridRange = { start: selection.start, end: { row: rowIndex, col: range.end.col } };
@@ -419,6 +421,7 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
 
   const handleColumnHeaderMouseDown = (e: React.MouseEvent, colIndex: number) => {
     if ((e.target as HTMLElement).dataset.resizeHandle === 'true') return;
+    e.preventDefault();
     const range = getRangeForColumn(colIndex);
     if (e.shiftKey && selection) {
       const nextRange: GridRange = { start: selection.start, end: { row: range.end.row, col: colIndex } };
