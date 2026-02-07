@@ -7,8 +7,9 @@ import { TempLeads } from './TempLeads';
 import { AddFieldModal } from './AddFieldModal';
 import { AddCategoryModal } from './AddCategoryModal';
 import { supabase } from '../lib/supabase';
+import { Documentation } from './Documentation';
 
-type Tab = 'master' | 'temp' | string;
+type Tab = 'master' | 'temp' | 'docs' | string;
 
 type OutreachMethod = {
   key: string;
@@ -89,6 +90,7 @@ export function CRM() {
     { id: 'master', label: 'Master Leads' },
     ...methods.map((method) => ({ id: method.key, label: method.label })),
     { id: 'temp', label: 'Temp Import' },
+    { id: 'docs', label: 'Documentation' },
   ];
 
   return (
@@ -176,6 +178,7 @@ export function CRM() {
           />
         )}
         {activeTab === 'temp' && <TempLeads onImport={handleRefresh} outreachOptions={methods} />}
+        {activeTab === 'docs' && <Documentation />}
       </main>
 
       {showAddField && (

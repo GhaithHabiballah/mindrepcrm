@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { supabase, Lead, LeadField } from '../lib/supabase';
 import { isSelectField } from '../lib/leadFieldConfig';
@@ -35,6 +35,8 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
   const [showColumns, setShowColumns] = useState(false);
   const [showViews, setShowViews] = useState(false);
   const [activeView, setActiveView] = useState<string>('');
+  const [showHint, setShowHint] = useState(false);
+  const gridRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     loadData();
@@ -107,6 +109,13 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
       const value = (lead as Record<string, string | null>)[fieldKey];
       setEditValue(value || '');
     }
+  };
+
+  const focusGridForPaste = () => {
+    if (!selectedCell && filteredLeads.length > 0 && orderedFields.length > 0) {
+      selectCellByIndex(0, 0);
+    }
+    gridRef.current?.focus();
   };
 
   const handleCellUpdate = async (overrideValue?: string) => {
@@ -495,6 +504,18 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
             placeholder="Search..."
             className="px-3 py-2 rounded-md bg-gray-900 border border-gray-700 text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
           />
+          <button
+            onClick={() => setShowHint((prev) => !prev)}
+            className="px-3 py-2 rounded-md bg-gray-800 text-gray-200 text-sm hover:bg-gray-700"
+          >
+            Hint
+          </button>
+          <button
+            onClick={focusGridForPaste}
+            className="px-3 py-2 rounded-md bg-purple-700 text-white text-sm hover:bg-purple-600"
+          >
+            Paste
+          </button>
           <div className="relative">
             <button
               onClick={() => setShowColumns((prev) => !prev)}
@@ -635,6 +656,12 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
         </div>
       )}
 
+      {showHint && (
+        <div className="mb-3 text-xs text-gray-300 bg-gray-900 border border-gray-800 rounded-md p-2">
+          Click any cell, then paste (Ctrl/Cmd+V). Multi‑row and multi‑column paste is supported.
+        </div>
+      )}
+
       <div className="mb-3 text-xs text-gray-400">
         Tip: Paste anywhere in the grid (Ctrl+V). Rows will auto‑add if enabled.
       </div>
@@ -668,6 +695,7 @@ export function TempLeads({ onImport, outreachOptions }: TempLeadsProps) {
             handleGridPaste(text);
           }
         }}
+        ref={gridRef}
         tabIndex={0}
         onKeyDown={handleKeyDown}
       >
