@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { EditListItem, GridCellKind, GridSelection, Item } from '@glideapps/glide-data-grid';
 import { supabase, Lead, LeadField } from '../lib/supabase';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { AddLeadModal } from './AddLeadModal';
-import { parseClipboard } from '../lib/pasteGrid';
 import { GridPrefs, SavedView, loadGridPrefs, saveGridPrefs, loadViews, saveViews, moveInArray } from '../lib/gridPrefs';
-import { isSelectField, isDateField, formatDate } from '../lib/leadFieldConfig';
+import { GlideLeadGrid } from './GlideLeadGrid';
 
 type OutreachViewProps = {
   method: string;
@@ -12,8 +12,6 @@ type OutreachViewProps = {
   outreachOptions: { key: string; label: string }[];
   onUpdate: () => void;
 };
-
-type GridRange = { start: { row: number; col: number }; end: { row: number; col: number } };
 
 type UndoAction = {
   changes: { id: string; fieldKey: string; prev: string | null; next: string | null }[];
@@ -24,10 +22,7 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
   const [leads, setLeads] = useState<Lead[]>([]);
   const [fields, setFields] = useState<LeadField[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editingCell, setEditingCell] = useState<{ leadId: string; fieldKey: string } | null>(null);
-  const [editValue, setEditValue] = useState('');
   const [showAddLead, setShowAddLead] = useState(false);
-  const [selectedCell, setSelectedCell] = useState<{ leadId: string; fieldKey: string } | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkMethod, setBulkMethod] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -37,19 +32,8 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
   const [showViews, setShowViews] = useState(false);
   const [activeView, setActiveView] = useState<string>('');
   const [showHint, setShowHint] = useState(false);
-  const gridRef = useRef<HTMLDivElement | null>(null);
-  const [selection, setSelection] = useState<GridRange | null>(null);
-  const [ranges, setRanges] = useState<GridRange[]>([]);
-  const [isSelecting, setIsSelecting] = useState(false);
-  const [isFilling, setIsFilling] = useState(false);
-  const [fillValue, setFillValue] = useState<string | null>(null);
-  const [resizing, setResizing] = useState<{ key: string; startX: number; startWidth: number } | null>(null);
-  const [selectionMode, setSelectionMode] = useState<'cell' | 'row' | 'col' | null>(null);
   const [undoStack, setUndoStack] = useState<UndoAction[]>([]);
   const [redoStack, setRedoStack] = useState<UndoAction[]>([]);
-  const [rowHeights, setRowHeights] = useState<Record<string, number>>({});
-  const [resizingRow, setResizingRow] = useState<{ id: string; startY: number; startHeight: number } | null>(null);
-  const [dragFieldKey, setDragFieldKey] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -92,59 +76,6 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
       supabase.removeChannel(channel);
     };
   }, [method, loadData]);
-
-  const handleCellClick = (lead: Lead, fieldKey: string) => {
-    setEditingCell({ leadId: lead.id, fieldKey });
-    setSelectedCell({ leadId: lead.id, fieldKey });
-    const value = (lead as Record<string, string | null>)[fieldKey];
-    setEditValue(value || '');
-  };
-
-  const getCellValue = (rowIndex: number, colIndex: number) => {
-    const row = filteredLeads[rowIndex];
-    const col = orderedFields[colIndex];
-    if (!row || !col) return '';
-    const value = (row as Record<string, string | null>)[col.field_key];
-    return value || '';
-  };
-
-  const normalizeRange = (start: { row: number; col: number }, end: { row: number; col: number }) => {
-    return {
-      top: Math.min(start.row, end.row),
-      bottom: Math.max(start.row, end.row),
-      left: Math.min(start.col, end.col),
-      right: Math.max(start.col, end.col),
-    };
-  };
-
-  const getRangeForRow = (rowIndex: number) => ({
-    start: { row: rowIndex, col: 0 },
-    end: { row: rowIndex, col: Math.max(orderedFields.length - 1, 0) },
-  });
-
-  const getRangeForColumn = (colIndex: number) => ({
-    start: { row: 0, col: colIndex },
-    end: { row: Math.max(filteredLeads.length - 1, 0), col: colIndex },
-  });
-
-  const isCellInRange = (rowIndex: number, colIndex: number, range: GridRange) => {
-    const normalized = normalizeRange(range.start, range.end);
-    return rowIndex >= normalized.top &&
-      rowIndex <= normalized.bottom &&
-      colIndex >= normalized.left &&
-      colIndex <= normalized.right;
-  };
-
-  const isCellInRanges = (rowIndex: number, colIndex: number) =>
-    ranges.some((range) => isCellInRange(rowIndex, colIndex, range));
-
-  const getValidationError = (fieldKey: string, value: string | null) => {
-    if (!value) return null;
-    if (fieldKey === 'email' && !value.includes('@')) return 'Invalid email';
-    if (fieldKey === 'phone' && value.replace(/\D/g, '').length < 7) return 'Invalid phone';
-    if (fieldKey === 'website' && !value.includes('.')) return 'Invalid website';
-    return null;
-  };
 
   const applyMatrix = async (startRow: number, startCol: number, matrix: string[][]) => {
     if (matrix.length === 0) return;
@@ -228,91 +159,71 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
     return applyMatrix(startRow, 0, mapped);
   };
 
-  const selectCellByIndex = (rowIndex: number, colIndex: number) => {
-    const row = filteredLeads[rowIndex];
-    const col = orderedFields[colIndex];
-    if (!row || !col) return;
-    setSelectedCell({ leadId: row.id, fieldKey: col.field_key });
-    const nextRange: GridRange = { start: { row: rowIndex, col: colIndex }, end: { row: rowIndex, col: colIndex } };
-    setSelection(nextRange);
-    setRanges([nextRange]);
+  const handleCellsEdited = async (edits: readonly EditListItem[]) => {
+    if (edits.length === 0) return;
+    const updatesById = new Map<string, Record<string, string | null>>();
+    const changes: UndoAction['changes'] = [];
+
+    for (const edit of edits) {
+      if (edit.value.kind !== GridCellKind.Text) continue;
+      const [col, row] = edit.location;
+      const lead = filteredLeads[row];
+      const field = orderedFields[col];
+      if (!lead || !field) continue;
+      let nextValue = edit.value.data ?? '';
+      if (field.field_key === 'outreach_method') {
+        const match = outreachOptions.find(
+          (option) =>
+            option.key.toLowerCase() === nextValue.toLowerCase() ||
+            option.label.toLowerCase() === nextValue.toLowerCase()
+        );
+        if (match) nextValue = match.key;
+      }
+      const payload = updatesById.get(lead.id) || {};
+      const prevVal = (lead as Record<string, string | null>)[field.field_key] ?? null;
+      payload[field.field_key] = nextValue.length > 0 ? nextValue : null;
+      updatesById.set(lead.id, payload);
+      changes.push({ id: lead.id, fieldKey: field.field_key, prev: prevVal, next: payload[field.field_key] });
+    }
+
+    if (updatesById.size === 0) return;
+    await Promise.all(
+      Array.from(updatesById.entries()).map(([id, payload]) =>
+        supabase.from('leads').update(payload).eq('id', id)
+      )
+    );
+    setUndoStack((prev) => [...prev, { changes, insertedRows: [] }]);
+    setRedoStack([]);
+    loadData();
+    onUpdate();
   };
 
-  const handleKeyDown = async (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (editingCell) return;
-    if (!selectedCell) {
-      if (filteredLeads.length > 0 && orderedFields.length > 0) {
-        selectCellByIndex(0, 0);
-      }
-      return;
+  const handlePaste = (target: Item, values: readonly (readonly string[])[]) => {
+    const matrix = values.map((row) => row.map((cell) => cell ?? ''));
+    if (matrix.length === 0) return false;
+    const startCol = target[0];
+    const startRow = target[1];
+    if (prefs.pasteHeaderMap) {
+      void applyMatrixWithHeaderMap(startRow, matrix as string[][]);
+      return false;
     }
+    void applyMatrix(startRow, startCol, matrix as string[][]);
+    return false;
+  };
 
-    const rowIndex = filteredLeads.findIndex((l) => l.id === selectedCell.leadId);
-    const colIndex = orderedFields.findIndex((f) => f.field_key === selectedCell.fieldKey);
-    if (rowIndex === -1 || colIndex === -1) return;
-
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      selectCellByIndex(Math.min(rowIndex + 1, filteredLeads.length - 1), colIndex);
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      selectCellByIndex(Math.max(rowIndex - 1, 0), colIndex);
-    } else if (e.key === 'ArrowRight') {
-      e.preventDefault();
-      selectCellByIndex(rowIndex, Math.min(colIndex + 1, orderedFields.length - 1));
-    } else if (e.key === 'ArrowLeft') {
-      e.preventDefault();
-      selectCellByIndex(rowIndex, Math.max(colIndex - 1, 0));
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      const lead = filteredLeads[rowIndex];
-      const fieldKey = orderedFields[colIndex].field_key;
-      setEditingCell({ leadId: lead.id, fieldKey });
-      const value = (lead as Record<string, string | null>)[fieldKey];
-      setEditValue(value || '');
-    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && selection) {
-      e.preventDefault();
-      const range = normalizeRange(selection.start, selection.end);
-      const rows: string[] = [];
-      if (prefs.copyHeaders) {
-        const headerRow: string[] = [];
-        for (let c = range.left; c <= range.right; c += 1) {
-          headerRow.push(orderedFields[c]?.label ?? '');
-        }
-        rows.push(headerRow.join('\t'));
-      }
-      for (let r = range.top; r <= range.bottom; r += 1) {
-        const cols: string[] = [];
-        for (let c = range.left; c <= range.right; c += 1) {
-          cols.push(getCellValue(r, c));
-        }
-        rows.push(cols.join('\t'));
-      }
-      await navigator.clipboard.writeText(rows.join('\n'));
-    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v' && selection) {
-      e.preventDefault();
-      const text = await navigator.clipboard.readText();
-      const matrix = parseClipboard(text);
-      const range = normalizeRange(selection.start, selection.end);
-      await applyMatrix(range.top, range.left, matrix);
-    } else if ((e.key === 'Backspace' || e.key === 'Delete') && selection) {
-      e.preventDefault();
-      const targetRanges = ranges.length > 0 ? ranges : [selection];
-      for (const rangeItem of targetRanges) {
-        const range = normalizeRange(rangeItem.start, rangeItem.end);
-        const matrix = Array.from({ length: range.bottom - range.top + 1 }, () =>
-          Array.from({ length: range.right - range.left + 1 }, () => '')
-        );
-        await applyMatrix(range.top, range.left, matrix);
-      }
-    }
+  const handleDelete = (selection: GridSelection) => {
+    if (!selection.current) return true;
+    const range = selection.current.range;
+    const matrix = Array.from({ length: range.height }, () =>
+      Array.from({ length: range.width }, () => '')
+    );
+    void applyMatrix(range.y, range.x, matrix);
+    return true;
   };
 
   const focusGridForPaste = () => {
-    if (!selectedCell && filteredLeads.length > 0 && orderedFields.length > 0) {
-      selectCellByIndex(0, 0);
-    }
-    gridRef.current?.focus();
+    const el = document.querySelector('[data-glide-grid]') as HTMLElement | null;
+    el?.focus();
   };
 
   const applyUndoAction = async (action: UndoAction, useNext: boolean) => {
@@ -355,232 +266,6 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
     setRedoStack((prev) => prev.slice(0, -1));
     setUndoStack((prev) => [...prev, last]);
     await applyUndoAction(last, true);
-  };
-
-  const handleCellMouseDown = (
-    e: React.MouseEvent,
-    rowIndex: number,
-    colIndex: number,
-    lead: Lead,
-    fieldKey: string
-  ) => {
-    e.preventDefault();
-    setSelectedCell({ leadId: lead.id, fieldKey });
-    const baseRange: GridRange = { start: { row: rowIndex, col: colIndex }, end: { row: rowIndex, col: colIndex } };
-    if (e.shiftKey && selection) {
-      const nextRange: GridRange = { start: selection.start, end: { row: rowIndex, col: colIndex } };
-      setSelection(nextRange);
-      setRanges((prev) => (prev.length > 0 ? [...prev.slice(0, -1), nextRange] : [nextRange]));
-    } else if (e.metaKey || e.ctrlKey) {
-      setRanges((prev) => {
-        const hitIndex = prev.findIndex((range) => isCellInRange(rowIndex, colIndex, range));
-        if (hitIndex >= 0) {
-          return prev.filter((_, idx) => idx !== hitIndex);
-        }
-        return [...prev, baseRange];
-      });
-      setSelection(baseRange);
-    } else {
-      setSelection(baseRange);
-      setRanges([baseRange]);
-    }
-    setSelectionMode('cell');
-    setIsSelecting(true);
-  };
-
-  const handleCellMouseEnter = (rowIndex: number, colIndex: number) => {
-    if (isSelecting || isFilling) {
-      setSelection((prev) => (prev ? { start: prev.start, end: { row: rowIndex, col: colIndex } } : prev));
-      setRanges((prev) => {
-        if (!prev.length) return prev;
-        const next = [...prev];
-        next[next.length - 1] = { start: prev[prev.length - 1].start, end: { row: rowIndex, col: colIndex } };
-        return next;
-      });
-    }
-  };
-
-  const handleRowHeaderMouseDown = (e: React.MouseEvent, rowIndex: number) => {
-    if ((e.target as HTMLElement).tagName.toLowerCase() === 'input') return;
-    e.preventDefault();
-    const range = getRangeForRow(rowIndex);
-    if (e.shiftKey && selection) {
-      const nextRange: GridRange = { start: selection.start, end: { row: rowIndex, col: range.end.col } };
-      setSelection(nextRange);
-      setRanges((prev) => (prev.length > 0 ? [...prev.slice(0, -1), nextRange] : [nextRange]));
-    } else if (e.metaKey || e.ctrlKey) {
-      setRanges((prev) => [...prev, range]);
-      setSelection(range);
-    } else {
-      setRanges([range]);
-      setSelection(range);
-    }
-    setSelectionMode('row');
-    setIsSelecting(true);
-  };
-
-  const handleColumnHeaderMouseDown = (e: React.MouseEvent, colIndex: number) => {
-    if ((e.target as HTMLElement).dataset.resizeHandle === 'true') return;
-    e.preventDefault();
-    const range = getRangeForColumn(colIndex);
-    if (e.shiftKey && selection) {
-      const nextRange: GridRange = { start: selection.start, end: { row: range.end.row, col: colIndex } };
-      setSelection(nextRange);
-      setRanges((prev) => (prev.length > 0 ? [...prev.slice(0, -1), nextRange] : [nextRange]));
-    } else if (e.metaKey || e.ctrlKey) {
-      setRanges((prev) => [...prev, range]);
-      setSelection(range);
-    } else {
-      setRanges([range]);
-      setSelection(range);
-    }
-    setSelectionMode('col');
-    setIsSelecting(true);
-  };
-
-  const handleHeaderMouseEnter = (rowIndex: number | null, colIndex: number | null) => {
-    if (!isSelecting || !selectionMode || !selection) return;
-    if (selectionMode === 'row' && rowIndex !== null) {
-      const nextRange: GridRange = { start: selection.start, end: { row: rowIndex, col: selection.end.col } };
-      setSelection(nextRange);
-      setRanges((prev) => {
-        if (!prev.length) return prev;
-        const next = [...prev];
-        next[next.length - 1] = nextRange;
-        return next;
-      });
-    } else if (selectionMode === 'col' && colIndex !== null) {
-      const nextRange: GridRange = { start: selection.start, end: { row: selection.end.row, col: colIndex } };
-      setSelection(nextRange);
-      setRanges((prev) => {
-        if (!prev.length) return prev;
-        const next = [...prev];
-        next[next.length - 1] = nextRange;
-        return next;
-      });
-    }
-  };
-
-  const handleGridMouseUp = async () => {
-    if (isFilling && selection) {
-      const range = normalizeRange(selection.start, selection.end);
-      const value = fillValue ?? '';
-      const matrix = Array.from({ length: range.bottom - range.top + 1 }, (_, rowIndex) =>
-        Array.from({ length: range.right - range.left + 1 }, () => {
-          if (range.right === range.left && range.bottom > range.top) {
-            const base = getCellValue(range.top, range.left);
-            const second = getCellValue(range.top + 1, range.left);
-            const baseNum = Number(base);
-            const secondNum = Number(second);
-            if (!Number.isNaN(baseNum) && !Number.isNaN(secondNum)) {
-              const step = secondNum - baseNum;
-              return String(baseNum + step * rowIndex);
-            }
-            const baseDate = new Date(base);
-            const secondDate = new Date(second);
-            if (!Number.isNaN(baseDate.getTime()) && !Number.isNaN(secondDate.getTime())) {
-              const stepDays = Math.round((secondDate.getTime() - baseDate.getTime()) / 86400000);
-              const nextDate = new Date(baseDate.getTime() + stepDays * rowIndex * 86400000);
-              return nextDate.toISOString().slice(0, 10);
-            }
-          }
-          return value;
-        })
-      );
-      await applyMatrix(range.top, range.left, matrix);
-    }
-    setIsSelecting(false);
-    setIsFilling(false);
-    setFillValue(null);
-    setSelectionMode(null);
-  };
-
-  const handleCellUpdate = async (overrideValue?: string) => {
-    if (!editingCell) return;
-
-    try {
-      const nextValue = overrideValue ?? editValue;
-      const { error } = await supabase
-        .from('leads')
-        .update({ [editingCell.fieldKey]: nextValue || null })
-        .eq('id', editingCell.leadId);
-
-      if (error) throw error;
-
-      const lead = leads.find((item) => item.id === editingCell.leadId);
-      const prevVal = lead ? (lead as Record<string, string | null>)[editingCell.fieldKey] ?? null : null;
-      setUndoStack((prev) => [
-        ...prev,
-        { changes: [{ id: editingCell.leadId, fieldKey: editingCell.fieldKey, prev: prevVal, next: nextValue || null }], insertedRows: [] },
-      ]);
-      setRedoStack([]);
-
-      setLeads(leads
-        .map(lead =>
-          lead.id === editingCell.leadId
-            ? { ...lead, [editingCell.fieldKey]: nextValue || null }
-            : lead
-        )
-        .filter(lead => lead.outreach_method === method)
-      );
-      onUpdate();
-    } catch (error) {
-      console.error('Error updating cell:', error);
-    } finally {
-      setEditingCell(null);
-      setEditValue('');
-    }
-  };
-
-  const handlePaste = async (leadId: string, fieldKey: string, text: string) => {
-    const matrix = parseClipboard(text);
-    if (matrix.length === 0) return;
-
-    const startRowIndex = filteredLeads.findIndex((lead) => lead.id === leadId);
-    const fieldIndex = orderedFields.findIndex((field) => field.field_key === fieldKey);
-    if (startRowIndex === -1 || fieldIndex === -1) return;
-
-    if (prefs.pasteHeaderMap) {
-      await applyMatrixWithHeaderMap(startRowIndex, matrix);
-      return;
-    }
-    await applyMatrix(startRowIndex, fieldIndex, matrix);
-  };
-
-  const handleGridPaste = async (text: string) => {
-    const matrix = parseClipboard(text);
-    if (matrix.length === 0) return;
-
-    if (filteredLeads.length === 0 && orderedFields.length > 0) {
-      if (!prefs.autoAddRows) return;
-      if (prefs.pasteHeaderMap) {
-        await applyMatrixWithHeaderMap(0, matrix);
-        return;
-      }
-      await applyMatrix(0, 0, matrix);
-      return;
-    }
-
-    const anchor = selectedCell || (leads[0] && fields[0] ? { leadId: leads[0].id, fieldKey: fields[0].field_key } : null);
-    if (!anchor) return;
-    handlePaste(anchor.leadId, anchor.fieldKey, text);
-  };
-
-  const toggleSelectAll = () => {
-    if (selectedIds.size === leads.length) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(leads.map((lead) => lead.id)));
-    }
-  };
-
-  const toggleSelect = (leadId: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(leadId)) next.delete(leadId);
-      else next.add(leadId);
-      return next;
-    });
   };
 
   const applyBulkMethod = async () => {
@@ -638,19 +323,6 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
     return [...ordered, ...missing].filter((f) => !prefs.hidden.includes(f.field_key));
   }, [fields, prefs.order, prefs.hidden]);
 
-  const columnSuggestions = useMemo(() => {
-    const suggestions: Record<string, string[]> = {};
-    fields.forEach((field) => {
-      const values = new Set<string>();
-      leads.forEach((lead) => {
-        const value = (lead as Record<string, string | null>)[field.field_key];
-        if (value) values.add(String(value));
-      });
-      suggestions[field.field_key] = Array.from(values).slice(0, 20);
-    });
-    return suggestions;
-  }, [fields, leads]);
-
   const allFieldsOrdered = useMemo(() => {
     const order = prefs.order.length > 0 ? prefs.order : fields.map((f) => f.field_key);
     const orderMap = new Map(fields.map((f) => [f.field_key, f]));
@@ -667,40 +339,6 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
     saveViews(`outreach:${method}`, views);
   }, [views, method]);
 
-  useEffect(() => {
-    if (!resizing) return;
-    const handleMove = (e: MouseEvent) => {
-      const delta = e.clientX - resizing.startX;
-      const nextWidth = Math.max(80, resizing.startWidth + delta);
-      setPrefs((prev) => ({
-        ...prev,
-        widths: { ...prev.widths, [resizing.key]: nextWidth },
-      }));
-    };
-    const handleUp = () => setResizing(null);
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', handleUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleUp);
-    };
-  }, [resizing]);
-
-  useEffect(() => {
-    if (!resizingRow) return;
-    const handleMove = (e: MouseEvent) => {
-      const delta = e.clientY - resizingRow.startY;
-      const nextHeight = Math.max(32, resizingRow.startHeight + delta);
-      setRowHeights((prev) => ({ ...prev, [resizingRow.id]: nextHeight }));
-    };
-    const handleUp = () => setResizingRow(null);
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', handleUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleUp);
-    };
-  }, [resizingRow]);
 
   const toggleFieldVisibility = (fieldKey: string) => {
     setPrefs((prev) => {
@@ -718,17 +356,6 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
       const nextIndex = direction === 'up' ? idx - 1 : idx + 1;
       return { ...prev, order: moveInArray(order, idx, nextIndex) };
     });
-  };
-
-  const handleColumnDrop = (targetKey: string) => {
-    if (!dragFieldKey || dragFieldKey === targetKey) return;
-    setPrefs((prev) => {
-      const order = prev.order.length > 0 ? [...prev.order] : fields.map((f) => f.field_key);
-      const from = order.indexOf(dragFieldKey);
-      const to = order.indexOf(targetKey);
-      return { ...prev, order: moveInArray(order, from, to) };
-    });
-    setDragFieldKey(null);
   };
 
   const saveCurrentView = () => {
@@ -771,19 +398,6 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
 
   const handleAddLead = () => {
     setShowAddLead(true);
-  };
-
-  const handleDeleteLead = async (leadId: string) => {
-    if (!confirm('Are you sure you want to delete this lead?')) return;
-
-    try {
-      const { error } = await supabase.from('leads').delete().eq('id', leadId);
-      if (error) throw error;
-      setLeads(leads.filter(lead => lead.id !== leadId));
-      onUpdate();
-    } catch (error) {
-      console.error('Error deleting lead:', error);
-    }
   };
 
   if (loading) {
@@ -980,285 +594,21 @@ export function OutreachView({ method, label, outreachOptions, onUpdate }: Outre
         Tip: Paste anywhere in the grid (Ctrl+V). Rows will auto‑add if enabled.
       </div>
 
-      {orderedFields.map((field) => (
-        <datalist key={field.field_key} id={`suggest-outreach-${method}-${field.field_key}`}>
-          {(columnSuggestions[field.field_key] || []).map((value) => (
-            <option key={value} value={value} />
-          ))}
-        </datalist>
-      ))}
 
-      <div
-        className="bg-gray-950 rounded-lg shadow overflow-hidden border border-gray-800"
-        onPaste={(e) => {
-          const text = e.clipboardData.getData('text');
-          if (text.includes('\t') || text.includes('\n')) {
-            e.preventDefault();
-            handleGridPaste(text);
-          }
-        }}
-        ref={gridRef}
-        tabIndex={0}
-        onKeyDown={handleKeyDown}
-        onMouseUp={handleGridMouseUp}
-      >
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-800 table-fixed">
-            <thead className="bg-gray-900 sticky top-0 z-20">
-              <tr>
-                <th
-                  className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider sticky left-0 z-30 bg-gray-900"
-                  style={{ width: 40 }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.size === leads.length && leads.length > 0}
-                    onChange={toggleSelectAll}
-                  />
-                </th>
-                {orderedFields.map((field) => (
-                  <th
-                    key={field.id}
-                    className={`px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider relative select-none group ${
-                      orderedFields[0]?.field_key === field.field_key ? 'sticky left-[40px] z-20 bg-gray-900' : ''
-                    }`}
-                    style={{ width: prefs.widths[field.field_key] ?? 160 }}
-                    draggable
-                    onDragStart={() => setDragFieldKey(field.field_key)}
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={() => handleColumnDrop(field.field_key)}
-                    onMouseDown={(e) => handleColumnHeaderMouseDown(e, orderedFields.findIndex((f) => f.field_key === field.field_key))}
-                    onMouseEnter={() => handleHeaderMouseEnter(null, orderedFields.findIndex((f) => f.field_key === field.field_key))}
-                  >
-                    {field.label}
-                    <span
-                      className="absolute right-0 top-0 h-full w-2 cursor-col-resize opacity-0 group-hover:opacity-100 transition bg-purple-400/60"
-                      data-resize-handle="true"
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        const startWidth = prefs.widths[field.field_key] ?? 160;
-                        setResizing({ key: field.field_key, startX: e.clientX, startWidth });
-                      }}
-                      onDoubleClick={(e) => {
-                        e.preventDefault();
-                        const maxLen = Math.max(
-                          field.label.length,
-                          ...filteredLeads.map((lead) => {
-                            const value = (lead as Record<string, string | null>)[field.field_key] ?? '';
-                            return String(value).length;
-                          })
-                        );
-                        const nextWidth = Math.min(420, Math.max(80, maxLen * 8 + 32));
-                        setPrefs((prev) => ({
-                          ...prev,
-                          widths: { ...prev.widths, [field.field_key]: nextWidth },
-                        }));
-                      }}
-                    />
-                  </th>
-                ))}
-                <th
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider"
-                  style={{ width: 90 }}
-                >
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-gray-950 divide-y divide-gray-800">
-              {filteredLeads.length === 0 ? (
-                <tr>
-                  <td colSpan={orderedFields.length + 2} className="px-6 py-4 text-center text-gray-500">
-                    No {method} outreach leads yet. Click "Add Lead" to get started.
-                  </td>
-                </tr>
-              ) : (
-                filteredLeads.map((lead, rowIndex) => (
-                  <tr
-                    key={lead.id}
-                    className="hover:bg-gray-900"
-                    style={{ height: rowHeights[lead.id] ?? 48 }}
-                  >
-                    <td
-                      className="px-4 py-4 sticky left-0 z-10 bg-gray-950 relative group"
-                      onMouseDown={(e) => handleRowHeaderMouseDown(e, rowIndex)}
-                      onMouseEnter={() => handleHeaderMouseEnter(rowIndex, null)}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.has(lead.id)}
-                        onChange={() => toggleSelect(lead.id)}
-                      />
-                      <span
-                        className="absolute bottom-0 left-0 w-full h-2 cursor-row-resize opacity-0 group-hover:opacity-100"
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          setResizingRow({
-                            id: lead.id,
-                            startY: e.clientY,
-                            startHeight: rowHeights[lead.id] ?? 48,
-                          });
-                        }}
-                      />
-                    </td>
-                    {orderedFields.map((field, colIndex) => {
-                      const isSelect = isSelectField(field.field_key, field.type);
-                      const isDate = isDateField(field.field_key, field.type);
-                      const selectOptions =
-                        field.field_key === 'outreach_method'
-                          ? outreachOptions
-                          : [];
-                      const leadRecord = lead as Record<string, string | null>;
-                      const methodLabel =
-                        field.field_key === 'outreach_method'
-                          ? outreachOptions.find((option) => option.key === leadRecord[field.field_key])?.label
-                          : null;
-
-                      const isSelected = isCellInRanges(rowIndex, colIndex);
-
-                      if (isDate) {
-                        return (
-                          <td
-                            key={field.id}
-                            className="px-6 py-4 whitespace-nowrap text-sm text-gray-100"
-                          >
-                            {formatDate(leadRecord[field.field_key])}
-                          </td>
-                        );
-                      }
-
-                      return (
-                        <td
-                          key={field.id}
-                          className={`px-6 py-4 whitespace-nowrap text-sm text-gray-100 cursor-pointer hover:bg-gray-800 ${
-                            selectedCell?.leadId === lead.id && selectedCell?.fieldKey === field.field_key
-                              ? 'ring-1 ring-purple-500'
-                              : ''
-                          } ${colIndex === 0 ? 'sticky left-[40px] z-10 bg-gray-950' : ''}`}
-                          style={isSelected ? { backgroundColor: 'rgba(124, 58, 237, 0.15)' } : undefined}
-                          onClick={() => handleCellClick(lead, field.field_key)}
-                          onMouseDown={(e) => handleCellMouseDown(e, rowIndex, colIndex, lead, field.field_key)}
-                          onMouseEnter={() => handleCellMouseEnter(rowIndex, colIndex)}
-                        >
-                          {editingCell?.leadId === lead.id && editingCell?.fieldKey === field.field_key ? (
-                            isSelect ? (
-                              <select
-                                value={editValue}
-                                onChange={(e) => {
-                                  setEditValue(e.target.value);
-                                  handleCellUpdate(e.target.value);
-                                }}
-                                autoFocus
-                                className="w-full px-2 py-1 border border-purple-500 rounded focus:outline-none focus:ring-2 focus:ring-purple-500 bg-gray-900 text-white"
-                              >
-                                <option value="">-</option>
-                                {selectOptions.map(option => (
-                                  <option key={option.key} value={option.key}>
-                                    {option.label}
-                                  </option>
-                                ))}
-                              </select>
-                            ) : (
-                              <input
-                                type="text"
-                                value={editValue}
-                                onChange={(e) => setEditValue(e.target.value)}
-                                onPaste={(e) => {
-                                  const text = e.clipboardData.getData('text');
-                                  if (text.includes('\t') || text.includes('\n')) {
-                                    e.preventDefault();
-                                    handlePaste(lead.id, field.field_key, text);
-                                    setEditingCell(null);
-                                    setEditValue('');
-                                  }
-                                }}
-                                onBlur={() => handleCellUpdate()}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') handleCellUpdate();
-                                  if (e.key === 'Escape') setEditingCell(null);
-                                }}
-                                autoFocus
-                                list={`suggest-outreach-${method}-${field.field_key}`}
-                                className="w-full px-2 py-1 border border-purple-500 rounded focus:outline-none focus:ring-2 focus:ring-purple-500 bg-gray-900 text-white"
-                              />
-                            )
-                          ) : (
-                            <span className="relative block">
-                              {(() => {
-                                const value = field.field_key === 'outreach_method'
-                                  ? methodLabel || '-'
-                                  : leadRecord[field.field_key] || '-';
-                                const error = getValidationError(field.field_key, leadRecord[field.field_key]);
-                                return (
-                                  <span
-                                    className={error ? 'text-red-300' : undefined}
-                                    title={error || undefined}
-                                  >
-                                    {value}
-                                  </span>
-                                );
-                              })()}
-                              {selection &&
-                                (() => {
-                                  const range = normalizeRange(selection.start, selection.end);
-                                  const isBottomRight =
-                                    rowIndex === range.bottom && colIndex === range.right;
-                                  return isBottomRight ? (
-                                    <span
-                                      onMouseDown={(e) => {
-                                        e.stopPropagation();
-                                        const value = getCellValue(range.top, range.left);
-                                        setFillValue(value);
-                                        setIsFilling(true);
-                                      }}
-                                      onDoubleClick={async (e) => {
-                                        e.stopPropagation();
-                                        if (range.left !== range.right) return;
-                                        const lastRow = filteredLeads.reduce((acc, lead, idx) => {
-                                          const val = (lead as Record<string, string | null>)[orderedFields[range.left]?.field_key];
-                                          return val ? idx : acc;
-                                        }, range.bottom);
-                                        if (lastRow <= range.bottom) return;
-                                        const value = getCellValue(range.top, range.left);
-                                        const matrix = Array.from({ length: lastRow - range.bottom }, () => [value]);
-                                        await applyMatrix(range.bottom + 1, range.left, matrix);
-                                      }}
-                                      className="absolute -bottom-1 -right-1 h-2 w-2 bg-purple-400 rounded-sm cursor-crosshair"
-                                    />
-                                  ) : null;
-                                })()}
-                            </span>
-                          )}
-                        </td>
-                      );
-                    })}
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      <button
-                        onClick={() => handleDeleteLead(lead.id)}
-                        className="text-red-400 hover:text-red-300"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td colSpan={orderedFields.length + 2} className="px-6 py-3">
-                  <button
-                    onClick={handleAddLead}
-                    className="text-sm text-purple-300 hover:text-white"
-                  >
-                    + Add row
-                  </button>
-                </td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
+      <div className="bg-gray-950 rounded-lg shadow overflow-hidden border border-gray-800">
+        <GlideLeadGrid
+          rows={filteredLeads}
+          orderedFields={orderedFields}
+          outreachOptions={outreachOptions}
+          prefs={prefs}
+          setPrefs={setPrefs}
+          onCellsEdited={handleCellsEdited}
+          onPaste={handlePaste}
+          onDelete={handleDelete}
+          onSelectedIdsChange={setSelectedIds}
+        />
       </div>
+
 
       {showAddLead && (
         <AddLeadModal
